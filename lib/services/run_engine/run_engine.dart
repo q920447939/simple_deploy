@@ -19,7 +19,9 @@ import '../../storage/project_paths.dart';
 import '../../storage/runs_store.dart';
 import '../../storage/servers_store.dart';
 import '../../storage/tasks_store.dart';
+import '../offline_assets/offline_assets.dart';
 import '../ssh/ssh_service.dart';
+import 'control_node_bootstrapper.dart';
 
 class RunEngine {
   final SshService ssh;
@@ -33,37 +35,6 @@ class RunEngine {
     required this.uuid,
     required this.projectsRoot,
   });
-
-  Future<void> selfCheckControlNode(SshEndpoint control) async {
-    await _requireOk(
-      control,
-      'ansible-playbook --version',
-      missing: '控制端缺少 ansible-playbook',
-    );
-    await _requireOk(control, 'sshpass -V', missing: '控制端缺少 sshpass（密码登录依赖）');
-    await _requireOk(control, 'unzip -v', missing: '控制端缺少 unzip（解包依赖）');
-    await _requireOk(
-      control,
-      'bash -lc "mkdir -p /tmp/simple_deploy && echo ok > /tmp/simple_deploy/.sd_write_test && test -s /tmp/simple_deploy/.sd_write_test && rm -f /tmp/simple_deploy/.sd_write_test"',
-      missing: '控制端 /tmp 不可写，无法创建运行目录',
-    );
-  }
-
-  Future<void> _requireOk(
-    SshEndpoint endpoint,
-    String command, {
-    required String missing,
-  }) async {
-    final r = await ssh.exec(endpoint, command);
-    if (r.exitCode != 0) {
-      throw AppException(
-        code: AppErrorCode.unknown,
-        title: '控制端自检失败',
-        message: '$missing（exit=${r.exitCode}）。',
-        suggestion: '在控制端安装依赖后重试。',
-      );
-    }
-  }
 
   Future<void> startBatchRun({
     required String projectId,
@@ -211,9 +182,25 @@ class RunEngine {
         password: controlServer.password,
       );
 
-      await selfCheckControlNode(endpoint);
-
       await ssh.withConnection(endpoint, (conn) async {
+        final runtime = await ControlNodeBootstrapper(
+          conn: conn,
+          endpoint: endpoint,
+          logger: logger,
+          assets: OfflineAssets.locate(),
+        ).ensureReady();
+
+        await _requireRemoteOk(
+          conn,
+          '${_dq(runtime.ansiblePlaybook)} --version',
+          title: '控制端缺少 ansible-playbook',
+        );
+        await _requireRemoteOk(
+          conn,
+          'bash -lc "mkdir -p /tmp/simple_deploy && echo ok > /tmp/simple_deploy/.sd_write_test && test -s /tmp/simple_deploy/.sd_write_test && rm -f /tmp/simple_deploy/.sd_write_test"',
+          title: '控制端 /tmp 不可写，无法创建运行目录',
+        );
+
         await _requireRemoteOk(
           conn,
           'mkdir -p ${_dq(prepared.remoteRunDir)}',
@@ -225,7 +212,7 @@ class RunEngine {
         );
         await _requireRemoteOk(
           conn,
-          'cd ${_dq(prepared.remoteRunDir)} && unzip -o bundle.zip >/dev/null',
+          'bash -lc "cd \\"${_bashEscape(prepared.remoteRunDir)}\\" && if command -v unzip >/dev/null 2>&1; then unzip -o bundle.zip >/dev/null; else \\"${_bashEscape(runtime.pythonBin)}\\" -c \'import zipfile; zipfile.ZipFile("bundle.zip").extractall(".")\'; fi"',
           title: '控制端解包失败',
         );
         await _requireRemoteOk(
@@ -266,6 +253,7 @@ class RunEngine {
               runDir: prepared.remoteRunDir,
               playbookPath: remotePlaybookPath,
               taskIndex: i,
+              ansiblePlaybook: runtime.ansiblePlaybook,
             );
             logger.info(
               'run.task.start',
@@ -655,7 +643,7 @@ class RunEngine {
       final id = s.id.replaceAll('-', '_');
       final user = s.username.isEmpty ? 'root' : s.username;
       lines.add(
-        'host_$id ansible_host=${s.ip} ansible_user=$user ansible_password=${_iniEscape(s.password)} ansible_port=${s.port} ansible_python_interpreter=/usr/bin/python3',
+        'host_$id ansible_host=${s.ip} ansible_user=$user ansible_password=${_iniEscape(s.password)} ansible_port=${s.port} ansible_connection=paramiko ansible_python_interpreter=/usr/bin/python3',
       );
     }
     return lines.join('\n');
@@ -673,11 +661,13 @@ class RunEngine {
     required String runDir,
     required String playbookPath,
     required int taskIndex,
+    required String ansiblePlaybook,
   }) {
     final dir = _bashEscape(runDir);
     final pb = _bashEscape(playbookPath);
     final log = _bashEscape('logs/task_$taskIndex.log');
-    return 'bash -lc "cd \\"$dir\\" && set -o pipefail; ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook -i inventory.ini \\"$pb\\" --extra-vars @vars.json 2>&1 | tee \\"$log\\"; exit \${PIPESTATUS[0]}"';
+    final ab = _bashEscape(ansiblePlaybook);
+    return 'bash -lc "cd \\"$dir\\" && set -o pipefail; ANSIBLE_HOST_KEY_CHECKING=False \\"$ab\\" -i inventory.ini \\"$pb\\" --extra-vars @vars.json 2>&1 | tee \\"$log\\"; exit \${PIPESTATUS[0]}"';
   }
 
   static String _bashEscape(String s) =>

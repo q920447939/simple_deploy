@@ -242,7 +242,9 @@ class _ServerDetail extends StatelessWidget {
                           SizedBox(
                             width: 14.w,
                             height: 14.w,
-                            child: const m.CircularProgressIndicator(strokeWidth: 2),
+                            child: const m.CircularProgressIndicator(
+                              strokeWidth: 2,
+                            ),
                           ),
                           SizedBox(width: 8.w),
                           Text(text),
@@ -268,13 +270,16 @@ class _ServerDetail extends StatelessWidget {
                                         title: Text(
                                           r.exitCode == 0 ? '连接成功' : '连接失败',
                                         ),
-                                        content: SizedBox(
-                                          width: 640.w,
+                                        content: ConstrainedBox(
+                                          constraints: BoxConstraints(
+                                            maxHeight: 0.6.sh,
+                                            maxWidth: 640.w,
+                                          ),
                                           child: m.SingleChildScrollView(
                                             child: Text(
                                               r.exitCode == 0
                                                   ? (r.stdout.trim().isEmpty
-                                                        ? 'ok'
+                                                        ? '（执行成功，无输出）'
                                                         : r.stdout.trim())
                                                   : (r.stderr.trim().isEmpty
                                                         ? r.stdout.trim()
@@ -316,8 +321,11 @@ class _ServerDetail extends StatelessWidget {
                                           title: Text(
                                             r.ok ? '环境自检通过' : '环境自检失败',
                                           ),
-                                          content: SizedBox(
-                                            width: 760.w,
+                                          content: ConstrainedBox(
+                                            constraints: BoxConstraints(
+                                              maxHeight: 0.6.sh,
+                                              maxWidth: 760.w,
+                                            ),
                                             child: m.SingleChildScrollView(
                                               child: Text(r.details).mono(),
                                             ),

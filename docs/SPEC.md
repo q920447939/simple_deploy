@@ -41,7 +41,7 @@
 ## 5. 前置条件（必须满足）
 - 控制端：
   - Linux；
-  - 已安装 `ansible-playbook`；
+  - 已安装 `ansible-playbook`（或由客户端在支持的系统上自动安装：Ubuntu 24+ / 银河麒麟 V10 SP3，x86_64/aarch64）；
   - 能 SSH 直连所有被控端；
   - 支持密码方式 SSH（建议安装 `sshpass`；见“技术文档-执行协议”）。
 - 被控端：
@@ -229,7 +229,7 @@
 ### 4.2 inventory 生成（最简）
 客户端在每次 Run 生成 `inventory.ini`，示例（概念）：
 - `[all]`
-- `host_001 ansible_host=10.0.0.1 ansible_user=root ansible_password=xxx ansible_port=22 ansible_python_interpreter=/usr/bin/python3`
+- `host_001 ansible_host=10.0.0.1 ansible_user=root ansible_password=xxx ansible_port=22 ansible_connection=paramiko ansible_python_interpreter=/usr/bin/python3`
 
 说明：
 - v1 不做分组；playbook 默认对 `all` 执行即可。
@@ -242,9 +242,11 @@
 - 任一任务退出码非 0：立刻停止后续任务，Run 失败，写入结果并结束。
 
 ### 4.4 密码 SSH 依赖
-Ansible 默认使用系统 SSH；密码方式通常依赖 `sshpass`：
-- v1 约定：控制端需安装 `sshpass`
-- 若未安装：客户端在执行前做一次自检（`sshpass -V`），失败则提示用户处理。
+为降低控制端依赖，客户端默认使用 `paramiko` 连接方式（纯 Python），不强制要求安装 `sshpass`。
+
+说明：
+- 若控制端未安装 `sshpass` 也可执行；
+- 若希望走系统 OpenSSH（非 `paramiko`），可在控制端安装 `sshpass` 作为密码登录补充。
 
 ## 5. Playbook 使用本次上传文件的约定
 客户端将用户选择的文件存入 `files/`，并在 `vars.json` 中写入映射，例如（概念）：
@@ -363,11 +365,10 @@ playbook 通过变量拿到路径后自行处理（copy/unarchive/docker load �
 - 实时更新（v1 轮询追加/流式二选一，以最简单实现为准）
 
 ## 任务10：健壮性与验收
-- 控制端依赖自检（ansible/sshpass）
+- 控制端依赖自检（python3.12/ansible-playbook；可选 unzip/sshpass）
 - 常见错误提示：SSH 失败、解包失败、playbook 路径错误、退出码非0
 - 最小可用验收用例（手工）：
   - 单任务成功
   - 中途失败停止
   - 同项目两批次并发运行
   - 批次结束后重置为暂停并替换文件再执行
-

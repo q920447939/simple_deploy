@@ -141,7 +141,9 @@ class ServersController extends GetxController {
     }
   }
 
-  Future<ControlSelfCheckReport> selfCheckControlEnvironment(Server server) async {
+  Future<ControlSelfCheckReport> selfCheckControlEnvironment(
+    Server server,
+  ) async {
     final pid = projectId;
     if (pid == null) {
       throw const AppException(
@@ -170,48 +172,45 @@ class ServersController extends GetxController {
         password: server.password,
       );
 
-      final report = await AppServices.I.sshService.withConnection(
-        endpoint,
-        (conn) async {
-          final lines = <String>[];
+      final report = await AppServices.I.sshService.withConnection(endpoint, (
+        conn,
+      ) async {
+        final lines = <String>[];
 
-          Future<_CheckResult> check(String title, String cmd) async {
-            final r = await conn.execWithResult(cmd);
-            final ok = r.exitCode == 0;
-            final out = [
-              '== $title ==',
-              '\$ $cmd',
-              'exit=${r.exitCode}',
-              if (r.stdout.trim().isNotEmpty) 'stdout:\n${r.stdout.trimRight()}',
-              if (r.stderr.trim().isNotEmpty) 'stderr:\n${r.stderr.trimRight()}',
-              '',
-            ].join('\n');
-            lines.add(out);
-            return _CheckResult(ok: ok, exitCode: r.exitCode);
-          }
+        Future<_CheckResult> check(String title, String cmd) async {
+          final r = await conn.execWithResult(cmd);
+          final ok = r.exitCode == 0;
+          final out = [
+            '== $title ==',
+            '\$ $cmd',
+            'exit=${r.exitCode}',
+            if (r.stdout.trim().isNotEmpty) 'stdout:\n${r.stdout.trimRight()}',
+            if (r.stderr.trim().isNotEmpty) 'stderr:\n${r.stderr.trimRight()}',
+            '',
+          ].join('\n');
+          lines.add(out);
+          return _CheckResult(ok: ok, exitCode: r.exitCode);
+        }
 
-          final results = <_CheckResult>[
-            await check('ansible-playbook', 'ansible-playbook --version'),
-            await check('sshpass', 'sshpass -V'),
-            await check('unzip', 'unzip -v'),
-            await check(
-              'run_dir 可写',
-              'bash -lc "mkdir -p /tmp/simple_deploy && echo ok > /tmp/simple_deploy/.sd_write_test && test -s /tmp/simple_deploy/.sd_write_test && rm -f /tmp/simple_deploy/.sd_write_test"',
-            ),
-          ];
+        final results = <_CheckResult>[
+          await check('ansible-playbook', 'ansible-playbook --version'),
+          await check('sshpass', 'sshpass -V'),
+          await check('unzip', 'unzip -v'),
+          await check(
+            'run_dir 可写',
+            'bash -lc "mkdir -p /tmp/simple_deploy && echo ok > /tmp/simple_deploy/.sd_write_test && test -s /tmp/simple_deploy/.sd_write_test && rm -f /tmp/simple_deploy/.sd_write_test"',
+          ),
+        ];
 
-          final ok = results.every((x) => x.ok);
-          final summary = ok
-              ? '环境自检通过'
-              : '环境自检失败（请根据下方输出定位缺失依赖或权限问题）';
+        final ok = results.every((x) => x.ok);
+        final summary = ok ? '环境自检通过' : '环境自检失败（请根据下方输出定位缺失依赖或权限问题）';
 
-          return ControlSelfCheckReport(
-            ok: ok,
-            summary: summary,
-            details: lines.join('\n'),
-          );
-        },
-      );
+        return ControlSelfCheckReport(
+          ok: ok,
+          summary: summary,
+          details: lines.join('\n'),
+        );
+      });
 
       final updated = server.copyWith(
         lastTestedAt: now,

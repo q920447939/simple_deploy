@@ -28,3 +28,9 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/offline/manifest.json
+    - assets/offline/bootstrap/install_control_runtime.sh
+    - assets/offline/python/
+    - assets/offline/ansible/
+    - assets/offline/os_pkgs/ubuntu/

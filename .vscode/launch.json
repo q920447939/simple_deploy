@@ -1,0 +1,14 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "simple_deploy",
+            "request": "launch",
+            "type": "dart",
+            "program": "lib/main.dart",
+            "args": [
+                "--debug" // 指定运行模式（debug/release/profile，默认debug）
+            ]
+        }
+    ]
+}

@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 2,
+  "python": {
+    "version": "3.12.12",
+    "provider": "python-build-standalone",
+    "providerTag": "20260113",
+    "installDir": "/opt/simple_deploy/python-3.12.12",
+    "binPath": "/usr/bin/python3.12"
+  },
+  "ansible": {
+    "version": "13.2.0",
+    "extraPip": [
+      "paramiko==4.0.0"
+    ],
+    "venvDir": "/opt/simple_deploy/ansible-venv",
+    "ansiblePlaybookPath": "/opt/simple_deploy/ansible-venv/bin/ansible-playbook"
+  },
+  "ubuntuTools": {
+    "sshpassVersion": "1.09-1",
+    "unzipVersion": "6.0-28ubuntu4.1"
+  },
+  "bundles": {
+    "linux-x86_64": {
+      "pythonArchive": "assets/offline/python/cpython-3.12.12+20260113-x86_64-unknown-linux-gnu-install_only.tar.gz",
+      "ansibleWheelhouseArchive": "assets/offline/ansible/wheelhouse-ansible-13.2.0-py312-linux-x86_64.tar.gz",
+      "ubuntuDebs": {
+        "sshpass": "assets/offline/os_pkgs/ubuntu/amd64/sshpass_1.09-1_amd64.deb",
+        "unzip": "assets/offline/os_pkgs/ubuntu/amd64/unzip_6.0-28ubuntu4.1_amd64.deb"
+      }
+    },
+    "linux-aarch64": {
+      "pythonArchive": "assets/offline/python/cpython-3.12.12+20260113-aarch64-unknown-linux-gnu-install_only.tar.gz",
+      "ansibleWheelhouseArchive": "assets/offline/ansible/wheelhouse-ansible-13.2.0-py312-linux-aarch64.tar.gz",
+      "ubuntuDebs": {
+        "sshpass": "assets/offline/os_pkgs/ubuntu/arm64/sshpass_1.09-1_arm64.deb",
+        "unzip": "assets/offline/os_pkgs/ubuntu/arm64/unzip_6.0-28ubuntu4.1_arm64.deb"
+      }
+    }
+  }
+}
