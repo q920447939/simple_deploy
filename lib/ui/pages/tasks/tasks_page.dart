@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart' as m;
+import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
@@ -22,14 +23,14 @@ class TasksPage extends StatelessWidget {
 
     return ProjectGuard(
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: EdgeInsets.all(16.r),
         child: Row(
           children: [
             SizedBox(
-              width: 360,
+              width: 360.w,
               child: Card(
                 child: Padding(
-                  padding: const EdgeInsets.all(12),
+                  padding: EdgeInsets.all(12.r),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -69,11 +70,11 @@ class TasksPage extends StatelessWidget {
                           return const SizedBox.shrink();
                         }
                         return Padding(
-                          padding: const EdgeInsets.only(top: 8),
+                          padding: EdgeInsets.only(top: 8.h),
                           child: const Text('提示：请先创建 Playbook，才能新增任务。').muted(),
                         );
                       }),
-                      const SizedBox(height: 12),
+                      SizedBox(height: 12.h),
                       Expanded(
                         child: Obx(() {
                           final items = controller.tasks;
@@ -111,7 +112,7 @@ class TasksPage extends StatelessWidget {
                 ),
               ),
             ),
-            const SizedBox(width: 16),
+            SizedBox(width: 16.w),
             Expanded(
               child: Obx(() {
                 final t = controller.selected;
@@ -143,7 +144,7 @@ class _TaskDetail extends StatelessWidget {
     final playbooks = Get.find<PlaybooksController>();
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: EdgeInsets.all(16.r),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -170,7 +171,7 @@ class _TaskDetail extends StatelessWidget {
                   },
                   child: const Text('编辑'),
                 ),
-                const SizedBox(width: 8),
+                SizedBox(width: 8.w),
                 DestructiveButton(
                   onPressed: () async {
                     final ok = await showDialog<bool>(
@@ -203,16 +204,16 @@ class _TaskDetail extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 12),
+            SizedBox(height: 12.h),
             Text('ID: ${task.id}').mono(),
-            const SizedBox(height: 6),
+            SizedBox(height: 6.h),
             Text('Playbook: ${playbook?.name ?? '未找到'}').mono(),
-            const SizedBox(height: 12),
+            SizedBox(height: 12.h),
             Text('说明').p(),
             Text(task.description.isEmpty ? '—' : task.description).muted(),
-            const SizedBox(height: 16),
+            SizedBox(height: 16.h),
             Text('文件槽位').p(),
-            const SizedBox(height: 8),
+            SizedBox(height: 8.h),
             Expanded(
               child: task.fileSlots.isEmpty
                   ? const Text('无').muted()
@@ -221,13 +222,13 @@ class _TaskDetail extends StatelessWidget {
                       itemBuilder: (context, i) {
                         final s = task.fileSlots[i];
                         return Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 6),
+                          padding: EdgeInsets.symmetric(vertical: 6.h),
                           child: Row(
                             children: [
                               Expanded(child: Text(s.name).mono()),
-                              const SizedBox(width: 12),
+                              SizedBox(width: 12.w),
                               Text(s.required ? '必选' : '可选').muted(),
-                              const SizedBox(width: 12),
+                              SizedBox(width: 12.w),
                               Text(s.multiple ? '多文件' : '单文件').muted(),
                             ],
                           ),
@@ -343,7 +344,7 @@ class _TaskEditDialogState extends State<_TaskEditDialog> {
     return AlertDialog(
       title: Text(initial == null ? '新增任务' : '编辑任务'),
       content: SizedBox(
-        width: 560,
+        width: 560.w,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -351,12 +352,12 @@ class _TaskEditDialogState extends State<_TaskEditDialog> {
               controller: _name,
               decoration: const m.InputDecoration(labelText: '名称'),
             ),
-            const SizedBox(height: 12),
+            SizedBox(height: 12.h),
             m.TextField(
               controller: _desc,
               decoration: const m.InputDecoration(labelText: '描述（可选）'),
             ),
-            const SizedBox(height: 12),
+            SizedBox(height: 12.h),
             if (widget.playbooks.isEmpty)
               Align(
                 alignment: Alignment.centerLeft,
@@ -375,16 +376,16 @@ class _TaskEditDialogState extends State<_TaskEditDialog> {
                     .toList(),
                 onChanged: (v) => setState(() => _playbookId = v),
               ),
-            const SizedBox(height: 16),
+            SizedBox(height: 16.h),
             Row(
               children: [
                 const Expanded(child: Text('文件槽位')),
                 OutlineButton(onPressed: _addSlot, child: const Text('新增槽位')),
               ],
             ),
-            const SizedBox(height: 8),
+            SizedBox(height: 8.h),
             SizedBox(
-              height: 160,
+              height: 160.h,
               child: _slots.isEmpty
                   ? const Center(child: Text('无'))
                   : m.ListView.builder(
@@ -470,7 +471,7 @@ class _FileSlotDialogState extends State<_FileSlotDialog> {
     return AlertDialog(
       title: const Text('新增文件槽位'),
       content: SizedBox(
-        width: 520,
+        width: 520.w,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -481,7 +482,7 @@ class _FileSlotDialogState extends State<_FileSlotDialog> {
                 hintText: '例如：artifact / config / package',
               ),
             ),
-            const SizedBox(height: 8),
+            SizedBox(height: 8.h),
             m.CheckboxListTile(
               value: _required,
               onChanged: (v) => setState(() => _required = v ?? _required),

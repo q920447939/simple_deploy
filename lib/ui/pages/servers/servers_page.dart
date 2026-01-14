@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart' as m;
+import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
@@ -33,14 +34,14 @@ class ServersPage extends StatelessWidget {
 
     return ProjectGuard(
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: EdgeInsets.all(16.r),
         child: Row(
           children: [
             SizedBox(
-              width: 360,
+              width: 360.w,
               child: Card(
                 child: Padding(
-                  padding: const EdgeInsets.all(12),
+                  padding: EdgeInsets.all(12.r),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -70,15 +71,15 @@ class ServersPage extends StatelessWidget {
                           ),
                         ],
                       ),
-                      const SizedBox(height: 12),
+                      SizedBox(height: 12.h),
                       Wrap(
-                        spacing: 8,
+                        spacing: 8.w,
                         children: [
                           toggle(ServerType.control, '控制端'),
                           toggle(ServerType.managed, '被控端'),
                         ],
                       ),
-                      const SizedBox(height: 12),
+                      SizedBox(height: 12.h),
                       Expanded(
                         child: Obx(() {
                           final items = controller.filtered.toList();
@@ -119,7 +120,7 @@ class ServersPage extends StatelessWidget {
                 ),
               ),
             ),
-            const SizedBox(width: 16),
+            SizedBox(width: 16.w),
             Expanded(
               child: Obx(() {
                 final s = controller.selected;
@@ -146,7 +147,7 @@ class _ServerDetail extends StatelessWidget {
     final controller = Get.find<ServersController>();
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: EdgeInsets.all(16.r),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -173,7 +174,7 @@ class _ServerDetail extends StatelessWidget {
                   },
                   child: const Text('编辑'),
                 ),
-                const SizedBox(width: 8),
+                SizedBox(width: 8.w),
                 DestructiveButton(
                   onPressed: () async {
                     final ok = await showDialog<bool>(
@@ -206,25 +207,25 @@ class _ServerDetail extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 12),
+            SizedBox(height: 12.h),
             Text('类型: ${server.type}').mono(),
-            const SizedBox(height: 6),
+            SizedBox(height: 6.h),
             Text('地址: ${server.ip}:${server.port}').mono(),
-            const SizedBox(height: 6),
+            SizedBox(height: 6.h),
             Text('用户名: ${server.username}').mono(),
-            const SizedBox(height: 6),
+            SizedBox(height: 6.h),
             Text('启用: ${server.enabled}').mono(),
-            const SizedBox(height: 6),
+            SizedBox(height: 6.h),
             Text('最后测试: ${_formatLastTest(server)}').mono(),
             if ((server.lastTestMessage ?? '').trim().isNotEmpty) ...[
-              const SizedBox(height: 6),
+              SizedBox(height: 6.h),
               Text('测试信息: ${server.lastTestMessage}').mono(),
             ],
-            const SizedBox(height: 16),
+            SizedBox(height: 16.h),
             Row(
               children: [
                 Text('快速操作').p(),
-                const SizedBox(width: 12),
+                SizedBox(width: 12.w),
                 Expanded(
                   child: Obx(() {
                     final isTesting = controller.testingId.value == server.id;
@@ -238,41 +239,37 @@ class _ServerDetail extends StatelessWidget {
                       return Row(
                         mainAxisSize: m.MainAxisSize.min,
                         children: [
-                          const SizedBox(
-                            width: 14,
-                            height: 14,
-                            child: m.CircularProgressIndicator(strokeWidth: 2),
+                          SizedBox(
+                            width: 14.w,
+                            height: 14.w,
+                            child: const m.CircularProgressIndicator(strokeWidth: 2),
                           ),
-                          const SizedBox(width: 8),
+                          SizedBox(width: 8.w),
                           Text(text),
                         ],
                       );
                     }
 
                     return Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
+                      spacing: 8.w,
+                      runSpacing: 8.h,
                       children: [
                         OutlineButton(
                           onPressed: isTesting
                               ? null
                               : () async {
                                   try {
-                                    final r =
-                                        await controller.testSshConnectivity(
-                                          server,
-                                        );
+                                    final r = await controller
+                                        .testSshConnectivity(server);
                                     if (!context.mounted) return;
                                     await showDialog<void>(
                                       context: context,
                                       builder: (context) => AlertDialog(
                                         title: Text(
-                                          r.exitCode == 0
-                                              ? '连接成功'
-                                              : '连接失败',
+                                          r.exitCode == 0 ? '连接成功' : '连接失败',
                                         ),
                                         content: SizedBox(
-                                          width: 640,
+                                          width: 640.w,
                                           child: m.SingleChildScrollView(
                                             child: Text(
                                               r.exitCode == 0
@@ -320,7 +317,7 @@ class _ServerDetail extends StatelessWidget {
                                             r.ok ? '环境自检通过' : '环境自检失败',
                                           ),
                                           content: SizedBox(
-                                            width: 760,
+                                            width: 760.w,
                                             child: m.SingleChildScrollView(
                                               child: Text(r.details).mono(),
                                             ),
@@ -350,7 +347,7 @@ class _ServerDetail extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 8),
+            SizedBox(height: 8.h),
             Text('注意：v1 明文保存密码，仅适用于内网/单人/受控环境。').muted(),
           ],
         ),
@@ -413,7 +410,7 @@ class _ServerEditDialogState extends State<_ServerEditDialog> {
     return AlertDialog(
       title: Text(initial == null ? '新增服务器' : '编辑服务器'),
       content: SizedBox(
-        width: 520,
+        width: 520.w,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -433,17 +430,17 @@ class _ServerEditDialogState extends State<_ServerEditDialog> {
               ],
               onChanged: (v) => setState(() => _type = v ?? _type),
             ),
-            const SizedBox(height: 12),
+            SizedBox(height: 12.h),
             m.TextField(
               controller: _name,
               decoration: const m.InputDecoration(labelText: '名称'),
             ),
-            const SizedBox(height: 12),
+            SizedBox(height: 12.h),
             m.TextField(
               controller: _ip,
               decoration: const m.InputDecoration(labelText: 'IP'),
             ),
-            const SizedBox(height: 12),
+            SizedBox(height: 12.h),
             Row(
               children: [
                 Expanded(
@@ -453,7 +450,7 @@ class _ServerEditDialogState extends State<_ServerEditDialog> {
                     keyboardType: m.TextInputType.number,
                   ),
                 ),
-                const SizedBox(width: 12),
+                SizedBox(width: 12.w),
                 Expanded(
                   child: m.TextField(
                     controller: _user,
@@ -462,7 +459,7 @@ class _ServerEditDialogState extends State<_ServerEditDialog> {
                 ),
               ],
             ),
-            const SizedBox(height: 12),
+            SizedBox(height: 12.h),
             m.TextField(
               controller: _pwd,
               obscureText: _obscurePwd,
@@ -477,14 +474,14 @@ class _ServerEditDialogState extends State<_ServerEditDialog> {
                 ),
               ),
             ),
-            const SizedBox(height: 12),
+            SizedBox(height: 12.h),
             m.SwitchListTile(
               value: _enabled,
               onChanged: (v) => setState(() => _enabled = v),
               title: const Text('启用'),
             ),
             if (pid == null) ...[
-              const SizedBox(height: 12),
+              SizedBox(height: 12.h),
               const Text('未选择项目，无法保存。').muted(),
             ],
           ],

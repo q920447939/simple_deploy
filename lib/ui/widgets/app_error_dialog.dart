@@ -1,3 +1,4 @@
+import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
 import '../../services/core/app_error.dart';
@@ -14,11 +15,11 @@ Future<void> showAppErrorDialog(BuildContext context, AppException e) {
           children: [
             Text(e.message),
             if (e.suggestion != null) ...[
-              const SizedBox(height: 12),
+              SizedBox(height: 12.h),
               Text('建议：${e.suggestion}').muted(),
             ],
             if (e.cause != null) ...[
-              const SizedBox(height: 12),
+              SizedBox(height: 12.h),
               Text('原因：${e.cause}').muted(),
             ],
           ],

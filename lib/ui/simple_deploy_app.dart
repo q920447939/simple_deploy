@@ -1,3 +1,4 @@
+import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
 import '../services/app_services.dart';
@@ -10,10 +11,20 @@ class SimpleDeployApp extends StatelessWidget {
   Widget build(BuildContext context) {
     final paths = AppServices.I.paths;
 
-    return ShadcnApp(
-      title: 'Simple Deploy',
-      theme: ThemeData(colorScheme: LegacyColorSchemes.darkZinc(), radius: 0.7),
-      home: AppShell(subtitle: Text(paths.rootDir.path)),
+    return ScreenUtilInit(
+      designSize: const Size(1920, 1080),
+      minTextAdapt: true,
+      splitScreenMode: true,
+      builder: (context, child) {
+        return ShadcnApp(
+          title: 'Simple Deploy',
+          theme: ThemeData(
+            colorScheme: LegacyColorSchemes.darkZinc(),
+            radius: 0.7,
+          ),
+          home: AppShell(subtitle: Text(paths.rootDir.path)),
+        );
+      },
     );
   }
 }

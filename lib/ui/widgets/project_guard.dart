@@ -1,4 +1,5 @@
 import 'package:get/get.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
 import '../controllers/nav_controller.dart';
@@ -17,14 +18,14 @@ class ProjectGuard extends StatelessWidget {
     return Obx(() {
       if (projects.selectedId.value == null) {
         return Padding(
-          padding: const EdgeInsets.all(24),
+          padding: EdgeInsets.all(24.r),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text('未选择项目').h2(),
-              const SizedBox(height: 12),
+              SizedBox(height: 12.h),
               const Text('请先创建/选择一个项目，再管理服务器/Playbook/任务/批次。').muted(),
-              const SizedBox(height: 16),
+              SizedBox(height: 16.h),
               PrimaryButton(
                 onPressed: () => nav.select(0),
                 child: const Text('去选择项目'),

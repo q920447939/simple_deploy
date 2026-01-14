@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart' as m;
+import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
 import 'package:path/path.dart' as path;
 import 'package:shadcn_flutter/shadcn_flutter.dart';
@@ -26,14 +27,14 @@ class PlaybooksPage extends StatelessWidget {
 
     return ProjectGuard(
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: EdgeInsets.all(16.r),
         child: Row(
           children: [
             SizedBox(
-              width: 360,
+              width: 360.w,
               child: Card(
                 child: Padding(
-                  padding: const EdgeInsets.all(12),
+                  padding: EdgeInsets.all(12.r),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -79,7 +80,7 @@ class PlaybooksPage extends StatelessWidget {
                               child: const Icon(Icons.delete_outline),
                             );
                           }),
-                          const SizedBox(width: 8),
+                          SizedBox(width: 8.w),
                           PrimaryButton(
                             density: ButtonDensity.icon,
                             onPressed: () async {
@@ -116,7 +117,7 @@ class PlaybooksPage extends StatelessWidget {
                           ),
                         ],
                       ),
-                      const SizedBox(height: 12),
+                      SizedBox(height: 12.h),
                       Expanded(
                         child: Obx(() {
                           final items = controller.playbooks;
@@ -179,7 +180,7 @@ class PlaybooksPage extends StatelessWidget {
                 ),
               ),
             ),
-            const SizedBox(width: 16),
+            SizedBox(width: 16.w),
             Expanded(
               child: Obx(() {
                 final meta = controller.selected;
@@ -278,7 +279,7 @@ class _PlaybookDetailState extends State<_PlaybookDetail> {
     final PlaybookMeta meta = widget.meta;
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: EdgeInsets.all(16.r),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -291,7 +292,7 @@ class _PlaybookDetailState extends State<_PlaybookDetail> {
                       children: [
                         Text(meta.name).h2(),
                         if (dirty) ...[
-                          const SizedBox(width: 8),
+                          SizedBox(width: 8.w),
                           const Text('（未保存）').muted(),
                         ],
                       ],
@@ -340,11 +341,11 @@ class _PlaybookDetailState extends State<_PlaybookDetail> {
                 ),
               ],
             ),
-            const SizedBox(height: 8),
+            SizedBox(height: 8.h),
             Text('路径: ${meta.relativePath}').mono(),
-            const SizedBox(height: 8),
+            SizedBox(height: 8.h),
             Text('更新时间: ${meta.updatedAt.toIso8601String()}').mono(),
-            const SizedBox(height: 12),
+            SizedBox(height: 12.h),
             Row(
               children: [
                 Expanded(child: Text('内容').p()),
@@ -359,7 +360,7 @@ class _PlaybookDetailState extends State<_PlaybookDetail> {
                           context: context,
                           builder: (context, overlay) => Card(
                             child: Padding(
-                              padding: const EdgeInsets.all(12),
+                              padding: EdgeInsets.all(12.r),
                               child: Row(
                                 children: [
                                   const Expanded(child: Text('保存成功')),
@@ -384,7 +385,7 @@ class _PlaybookDetailState extends State<_PlaybookDetail> {
                 ),
               ],
             ),
-            const SizedBox(height: 8),
+            SizedBox(height: 8.h),
             Expanded(child: TextArea(controller: _editor)),
           ],
         ),
@@ -440,7 +441,7 @@ class _CreatePlaybookDialogState extends State<_CreatePlaybookDialog> {
     return AlertDialog(
       title: const Text('新增 Playbook'),
       content: SizedBox(
-        width: 520,
+        width: 520.w,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -454,7 +455,7 @@ class _CreatePlaybookDialogState extends State<_CreatePlaybookDialog> {
                 _fileName.text = s;
               },
             ),
-            const SizedBox(height: 12),
+            SizedBox(height: 12.h),
             m.TextField(
               controller: _fileName,
               decoration: const m.InputDecoration(
@@ -463,7 +464,7 @@ class _CreatePlaybookDialogState extends State<_CreatePlaybookDialog> {
               ),
               onChanged: (_) => _fileNameTouched = true,
             ),
-            const SizedBox(height: 12),
+            SizedBox(height: 12.h),
             m.TextField(
               controller: _desc,
               decoration: const m.InputDecoration(labelText: '描述（可选）'),
@@ -522,15 +523,15 @@ class _BulkDeletePlaybooksDialogState
     return AlertDialog(
       title: const Text('批量删除 Playbook？'),
       content: SizedBox(
-        width: 520,
+        width: 520.w,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('将删除 ${widget.count} 个 Playbook（不可恢复）。'),
-            const SizedBox(height: 12),
+            SizedBox(height: 12.h),
             const Text('二次确认：输入 DELETE 继续').muted(),
-            const SizedBox(height: 8),
+            SizedBox(height: 8.h),
             m.TextField(
               controller: _confirm,
               decoration: const m.InputDecoration(hintText: 'DELETE'),

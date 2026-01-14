@@ -1,5 +1,6 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart' as m;
+import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
 import 'package:path/path.dart' as p;
 import 'package:shadcn_flutter/shadcn_flutter.dart';
@@ -39,14 +40,14 @@ class BatchesPage extends StatelessWidget {
 
     return ProjectGuard(
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: EdgeInsets.all(16.r),
         child: Row(
           children: [
             SizedBox(
-              width: 360,
+              width: 360.w,
               child: Card(
                 child: Padding(
-                  padding: const EdgeInsets.all(12),
+                  padding: EdgeInsets.all(12.r),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -77,10 +78,10 @@ class BatchesPage extends StatelessWidget {
                           ),
                         ],
                       ),
-                      const SizedBox(height: 12),
+                      SizedBox(height: 12.h),
                       Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
+                        spacing: 8.w,
+                        runSpacing: 8.h,
                         children: [
                           filter('all', '全部'),
                           filter(BatchStatus.paused, '暂停'),
@@ -88,7 +89,7 @@ class BatchesPage extends StatelessWidget {
                           filter(BatchStatus.ended, '结束'),
                         ],
                       ),
-                      const SizedBox(height: 12),
+                      SizedBox(height: 12.h),
                       Expanded(
                         child: Obx(() {
                           final items = controller.visibleBatches;
@@ -134,7 +135,7 @@ class BatchesPage extends StatelessWidget {
                 ),
               ),
             ),
-            const SizedBox(width: 16),
+            SizedBox(width: 16.w),
             Expanded(
               child: Obx(() {
                 final batch = controller.selectedBatch;
@@ -189,7 +190,7 @@ class _BatchDetail extends StatelessWidget {
 
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: EdgeInsets.all(16.r),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -218,7 +219,7 @@ class _BatchDetail extends StatelessWidget {
                     },
                     child: const Text('编辑'),
                   ),
-                const SizedBox(width: 8),
+                SizedBox(width: 8.w),
                 OutlineButton(
                   onPressed: () async {
                     final ok = await showDialog<bool>(
@@ -249,7 +250,7 @@ class _BatchDetail extends StatelessWidget {
                   },
                   child: const Text('强制解锁/重置'),
                 ),
-                const SizedBox(width: 8),
+                SizedBox(width: 8.w),
                 if (paused)
                   DestructiveButton(
                     onPressed: () async {
@@ -283,15 +284,15 @@ class _BatchDetail extends StatelessWidget {
                   ),
               ],
             ),
-            const SizedBox(height: 8),
+            SizedBox(height: 8.h),
             Text('状态: ${batch.status}').mono(),
-            const SizedBox(height: 6),
+            SizedBox(height: 6.h),
             Text('控制端: ${control?.name ?? '未找到'}').mono(),
-            const SizedBox(height: 6),
+            SizedBox(height: 6.h),
             Text('被控端: ${managed.length}').mono(),
-            const SizedBox(height: 6),
+            SizedBox(height: 6.h),
             Text('任务数: ${tasks.length}').mono(),
-            const SizedBox(height: 12),
+            SizedBox(height: 12.h),
             Row(
               children: [
                 Expanded(child: Text('执行').p()),
@@ -299,7 +300,7 @@ class _BatchDetail extends StatelessWidget {
                   onPressed: paused ? onExecute : null,
                   child: const Text('执行'),
                 ),
-                const SizedBox(width: 8),
+                SizedBox(width: 8.w),
                 OutlineButton(
                   onPressed: ended ? controller.resetToPaused : null,
                   child: const Text('重置为暂停'),
@@ -307,10 +308,10 @@ class _BatchDetail extends StatelessWidget {
               ],
             ),
             if (ended) ...[
-              const SizedBox(height: 8),
+              SizedBox(height: 8.h),
               const Text('提示：批次已结束，请先“重置为暂停”后再编辑/执行。').muted(),
             ],
-            const SizedBox(height: 8),
+            SizedBox(height: 8.h),
             FutureBuilder(
               future: controller.readLockInfo(),
               builder: (context, snapshot) {
@@ -321,7 +322,7 @@ class _BatchDetail extends StatelessWidget {
                 ).muted();
               },
             ),
-            const SizedBox(height: 16),
+            SizedBox(height: 16.h),
             Expanded(
               child: _RunAndLogsSection(batch: batch, tasks: tasks),
             ),
@@ -344,149 +345,173 @@ class _RunAndLogsSection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Obx(() {
-          final run = controller.selectedRun;
-          if (run == null) return const SizedBox.shrink();
-          final endedAt = run.endedAt == null
-              ? '—'
-              : run.endedAt!.toIso8601String().split('.').first;
-          final biz = run.bizStatus;
-          return Card(
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Run: ${run.status} · ${run.result} · started=${run.startedAt.toIso8601String().split('.').first} · ended=$endedAt',
-                  ).mono(),
-                  if ((run.errorSummary ?? '').trim().isNotEmpty) ...[
-                    const SizedBox(height: 6),
-                    Text('错误: ${run.errorSummary}').muted(),
-                  ],
-                  if (biz != null) ...[
-                    const SizedBox(height: 6),
-                    Text('业务状态: ${biz.status} ${biz.message}'.trim()).muted(),
-                  ],
-                ],
-              ),
-            ),
-          );
-        }),
-        const SizedBox(height: 12),
-        Text('任务进度').p(),
-        const SizedBox(height: 8),
-        Obx(() {
-          final run = controller.selectedRun;
-          final results = run?.taskResults ?? const <TaskRunResult>[];
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _TaskProgressBar(
-                tasks: tasks,
-                results: results,
-                selectedIndex: controller.selectedTaskIndex.value,
-                onSelect: (i) => controller.selectedTaskIndex.value = i,
-              ),
-              const SizedBox(height: 8),
-              Steps(
-                children: [
-                  for (var i = 0; i < tasks.length; i++)
-                    StepItem(
-                      title: Text(tasks[i].name),
-                      content: [
-                        Text(_taskStatusText(results, tasks[i].id)).muted(),
-                      ],
+        Flexible(
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Obx(() {
+                  final run = controller.selectedRun;
+                  if (run == null) return const SizedBox.shrink();
+                  final endedAt = run.endedAt == null
+                      ? '—'
+                      : run.endedAt!.toIso8601String().split('.').first;
+                  final biz = run.bizStatus;
+                  return Card(
+                    child: Padding(
+                      padding: EdgeInsets.all(12.r),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Run: ${run.status} · ${run.result} · started=${run.startedAt.toIso8601String().split('.').first} · ended=$endedAt',
+                          ).mono(),
+                          if ((run.errorSummary ?? '').trim().isNotEmpty) ...[
+                            SizedBox(height: 6.h),
+                            Text('错误: ${run.errorSummary}').muted(),
+                          ],
+                          if (biz != null) ...[
+                            SizedBox(height: 6.h),
+                            Text(
+                              '业务状态: ${biz.status} ${biz.message}'.trim(),
+                            ).muted(),
+                          ],
+                        ],
+                      ),
                     ),
-                ],
-              ),
-            ],
-          );
-        }),
-        const SizedBox(height: 16),
-        Row(
-          children: [
-            Text('Run').p(),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Obx(() {
-                final items = controller.runs;
-                if (items.isEmpty) {
-                  return const Text('暂无 Run').muted();
-                }
-                return Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    for (final r in items)
-                      _PickButton(
-                        selected: controller.selectedRunId.value == r.id,
-                        onPressed: () => controller.selectedRunId.value = r.id,
-                        child: Text(
-                          r.startedAt.toIso8601String().split('.').first,
-                        ),
+                  );
+                }),
+                SizedBox(height: 12.h),
+                Text('任务进度').p(),
+                SizedBox(height: 8.h),
+                Obx(() {
+                  final run = controller.selectedRun;
+                  final results = run?.taskResults ?? const <TaskRunResult>[];
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _TaskProgressBar(
+                        tasks: tasks,
+                        results: results,
+                        selectedIndex: controller.selectedTaskIndex.value,
+                        onSelect: (i) => controller.selectedTaskIndex.value = i,
                       ),
-                  ],
-                );
-              }),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        Row(
-          children: [
-            Text('任务').p(),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Obx(() {
-                return Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    for (var i = 0; i < tasks.length; i++)
-                      _PickButton(
-                        selected: controller.selectedTaskIndex.value == i,
-                        onPressed: () => controller.selectedTaskIndex.value = i,
-                        child: Text('${i + 1}'),
+                      SizedBox(height: 8.h),
+                      Steps(
+                        children: [
+                          for (var i = 0; i < tasks.length; i++)
+                            StepItem(
+                              title: Text(tasks[i].name),
+                              content: [
+                                Text(
+                                  _taskStatusText(results, tasks[i].id),
+                                ).muted(),
+                              ],
+                            ),
+                        ],
                       ),
+                    ],
+                  );
+                }),
+                SizedBox(height: 16.h),
+                Row(
+                  children: [
+                    Text('Run').p(),
+                    SizedBox(width: 12.w),
+                    Expanded(
+                      child: Obx(() {
+                        final items = controller.runs;
+                        if (items.isEmpty) {
+                          return const Text('暂无 Run').muted();
+                        }
+                        return Wrap(
+                          spacing: 8.w,
+                          runSpacing: 8.h,
+                          children: [
+                            for (final r in items)
+                              _PickButton(
+                                selected:
+                                    controller.selectedRunId.value == r.id,
+                                onPressed: () =>
+                                    controller.selectedRunId.value = r.id,
+                                child: Text(
+                                  r.startedAt
+                                      .toIso8601String()
+                                      .split('.')
+                                      .first,
+                                ),
+                              ),
+                          ],
+                        );
+                      }),
+                    ),
                   ],
-                );
-              }),
+                ),
+                SizedBox(height: 12.h),
+                Row(
+                  children: [
+                    Text('任务').p(),
+                    SizedBox(width: 12.w),
+                    Expanded(
+                      child: Obx(() {
+                        return Wrap(
+                          spacing: 8.w,
+                          runSpacing: 8.h,
+                          children: [
+                            for (var i = 0; i < tasks.length; i++)
+                              _PickButton(
+                                selected:
+                                    controller.selectedTaskIndex.value == i,
+                                onPressed: () =>
+                                    controller.selectedTaskIndex.value = i,
+                                child: Text('${i + 1}'),
+                              ),
+                          ],
+                        );
+                      }),
+                    ),
+                  ],
+                ),
+                SizedBox(height: 12.h),
+                Row(
+                  children: [
+                    Expanded(child: Text('日志').p()),
+                    Obx(
+                      () =>
+                          Text('最后 ${controller.logMaxLines.value} 行').muted(),
+                    ),
+                    SizedBox(width: 12.w),
+                    OutlineButton(
+                      onPressed: controller.refreshLog,
+                      child: const Text('刷新'),
+                    ),
+                    SizedBox(width: 8.w),
+                    Obx(() {
+                      final canMore = controller.logMaxLines.value < 20000;
+                      return OutlineButton(
+                        onPressed: canMore ? controller.loadMoreLog : null,
+                        child: const Text('加载更多'),
+                      );
+                    }),
+                  ],
+                ),
+                SizedBox(height: 6.h),
+                Obx(() {
+                  final bytes = controller.currentLogFileSize.value;
+                  if (bytes == null) {
+                    return const Text('默认仅渲染日志尾部，避免大文件卡顿。').muted();
+                  }
+                  final kb = bytes / 1024.0;
+                  return Text(
+                    'log 文件大小: ${kb.toStringAsFixed(1)} KB（默认仅渲染尾部，点击“加载更多”扩大范围）。',
+                  ).muted();
+                }),
+                SizedBox(height: 8.h),
+              ],
             ),
-          ],
+          ),
         ),
-        const SizedBox(height: 12),
-        Row(
-          children: [
-            Expanded(child: Text('日志').p()),
-            Obx(() => Text('最后 ${controller.logMaxLines.value} 行').muted()),
-            const SizedBox(width: 12),
-            OutlineButton(
-              onPressed: controller.refreshLog,
-              child: const Text('刷新'),
-            ),
-            const SizedBox(width: 8),
-            Obx(() {
-              final canMore = controller.logMaxLines.value < 20000;
-              return OutlineButton(
-                onPressed: canMore ? controller.loadMoreLog : null,
-                child: const Text('加载更多'),
-              );
-            }),
-          ],
-        ),
-        const SizedBox(height: 6),
-        Obx(() {
-          final bytes = controller.currentLogFileSize.value;
-          if (bytes == null) {
-            return const Text('默认仅渲染日志尾部，避免大文件卡顿。').muted();
-          }
-          final kb = bytes / 1024.0;
-          return Text(
-            'log 文件大小: ${kb.toStringAsFixed(1)} KB（默认仅渲染尾部，点击“加载更多”扩大范围）。',
-          ).muted();
-        }),
-        const SizedBox(height: 8),
         Expanded(
           child: Obx(() {
             final text = controller.currentLog.value;
@@ -545,15 +570,16 @@ class _TaskProgressBar extends StatelessWidget {
             _TaskNode(
               index: i,
               selected: selectedIndex == i,
-              color: _colorFor(_resultFor(tasks[i].id)?.status ??
-                  TaskExecStatus.waiting),
+              color: _colorFor(
+                _resultFor(tasks[i].id)?.status ?? TaskExecStatus.waiting,
+              ),
               onTap: () => onSelect(i),
             ),
             if (i < tasks.length - 1)
               Container(
-                width: 28,
-                height: 2,
-                margin: const EdgeInsets.symmetric(horizontal: 6),
+                width: 28.w,
+                height: 2.h,
+                margin: EdgeInsets.symmetric(horizontal: 6.w),
                 color: m.Colors.grey.shade700,
               ),
           ],
@@ -582,8 +608,8 @@ class _TaskNode extends StatelessWidget {
       onTap: onTap,
       borderRadius: m.BorderRadius.circular(999),
       child: Container(
-        width: 28,
-        height: 28,
+        width: 28.w,
+        height: 28.w,
         alignment: m.Alignment.center,
         decoration: m.BoxDecoration(
           color: color,
@@ -682,7 +708,7 @@ class _BatchEditDialogState extends State<_BatchEditDialog> {
     return AlertDialog(
       title: Text(initial == null ? '新增批次' : '编辑批次'),
       content: SizedBox(
-        width: 680,
+        width: 680.w,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -690,12 +716,12 @@ class _BatchEditDialogState extends State<_BatchEditDialog> {
               controller: _name,
               decoration: const m.InputDecoration(labelText: '名称'),
             ),
-            const SizedBox(height: 12),
+            SizedBox(height: 12.h),
             m.TextField(
               controller: _desc,
               decoration: const m.InputDecoration(labelText: '描述（可选）'),
             ),
-            const SizedBox(height: 12),
+            SizedBox(height: 12.h),
             m.DropdownButtonFormField<String>(
               key: ValueKey(_controlId),
               initialValue: _controlId,
@@ -710,16 +736,16 @@ class _BatchEditDialogState extends State<_BatchEditDialog> {
                   .toList(),
               onChanged: (v) => setState(() => _controlId = v),
             ),
-            const SizedBox(height: 16),
+            SizedBox(height: 16.h),
             Row(
               children: [
                 const Expanded(child: Text('选择被控端（至少 1 个）')),
                 Text('${_managed.length} 已选').muted(),
               ],
             ),
-            const SizedBox(height: 8),
+            SizedBox(height: 8.h),
             SizedBox(
-              height: 160,
+              height: 160.h,
               child: managed.isEmpty
                   ? const Center(child: Text('暂无被控端'))
                   : m.ListView(
@@ -742,7 +768,7 @@ class _BatchEditDialogState extends State<_BatchEditDialog> {
                       ],
                     ),
             ),
-            const SizedBox(height: 16),
+            SizedBox(height: 16.h),
             Row(
               children: [
                 const Expanded(child: Text('任务顺序（至少 1 个）')),
@@ -763,9 +789,9 @@ class _BatchEditDialogState extends State<_BatchEditDialog> {
                 ),
               ],
             ),
-            const SizedBox(height: 8),
+            SizedBox(height: 8.h),
             SizedBox(
-              height: 180,
+              height: 180.h,
               child: _order.isEmpty
                   ? const Center(child: Text('暂无任务'))
                   : m.ListView.builder(
@@ -780,7 +806,7 @@ class _BatchEditDialogState extends State<_BatchEditDialog> {
                           subtitle: Text('task_id=$id').muted(),
                           leading: Text('${i + 1}').mono(),
                           trailing: Wrap(
-                            spacing: 4,
+                            spacing: 4.w,
                             children: [
                               GhostButton(
                                 density: ButtonDensity.icon,
@@ -863,8 +889,8 @@ class _PickTaskDialog extends StatelessWidget {
     return AlertDialog(
       title: const Text('选择任务'),
       content: SizedBox(
-        width: 520,
-        height: 420,
+        width: 520.w,
+        height: 420.h,
         child: ListView.builder(
           itemCount: tasks.length,
           itemBuilder: (context, i) {
@@ -984,19 +1010,19 @@ class _BatchFileInputsDialogState extends State<_BatchFileInputsDialog> {
     return AlertDialog(
       title: const Text('选择运行输入文件'),
       content: SizedBox(
-        width: 760,
-        height: 560,
+        width: 760.w,
+        height: 560.h,
         child: m.ListView(
           children: [
             const Text('说明：必选槽位未选择文件将无法开始执行。').muted(),
-            const SizedBox(height: 12),
+            SizedBox(height: 12.h),
             for (var ti = 0; ti < widget.tasks.length; ti++) ...[
               if (ti > 0) const Divider(),
               Text(widget.tasks[ti].name).p(),
-              const SizedBox(height: 6),
+              SizedBox(height: 6.h),
               if (widget.tasks[ti].fileSlots.isEmpty)
                 Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
+                  padding: EdgeInsets.only(bottom: 8.h),
                   child: Text('该任务没有文件槽位。').muted(),
                 ),
               for (final slot in widget.tasks[ti].fileSlots) ...[
@@ -1008,7 +1034,7 @@ class _BatchFileInputsDialogState extends State<_BatchFileInputsDialog> {
                   onClear: () => _clear(widget.tasks[ti], slot),
                   onRemove: (path) => _remove(widget.tasks[ti], slot, path),
                 ),
-                const SizedBox(height: 10),
+                SizedBox(height: 10.h),
               ],
             ],
           ],
@@ -1057,16 +1083,16 @@ class _SlotRow extends StatelessWidget {
         Row(
           children: [
             Expanded(child: Text(slot.name).mono()),
-            const SizedBox(width: 8),
+            SizedBox(width: 8.w),
             Text(requiredText).muted(),
-            const SizedBox(width: 8),
+            SizedBox(width: 8.w),
             Text(multiText).muted(),
-            const SizedBox(width: 12),
+            SizedBox(width: 12.w),
             OutlineButton(
               onPressed: onPick,
               child: Text(hasAny && slot.multiple ? '添加' : '选择'),
             ),
-            const SizedBox(width: 8),
+            SizedBox(width: 8.w),
             GhostButton(
               onPressed: hasAny ? onClear : null,
               child: const Text('清空'),
@@ -1078,8 +1104,8 @@ class _SlotRow extends StatelessWidget {
           Text(slot.required ? '（必选）未选择文件' : '未选择').muted()
         else
           Wrap(
-            spacing: 8,
-            runSpacing: 8,
+            spacing: 8.w,
+            runSpacing: 8.h,
             children: [
               for (final path in selectedPaths)
                 m.InputChip(

@@ -1,4 +1,5 @@
 import 'package:flutter/services.dart';
+import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
@@ -56,8 +57,8 @@ class _AboutAndHelpDialogState extends State<_AboutAndHelpDialog> {
     return AlertDialog(
       title: const Text('关于 / 使用说明'),
       content: SizedBox(
-        width: 860,
-        height: 560,
+        width: 860.w,
+        height: 560.h,
         child: ListView(
           children: [
             Row(
@@ -66,33 +67,31 @@ class _AboutAndHelpDialogState extends State<_AboutAndHelpDialog> {
                 Text('版本: ${_versionText()}').mono(),
               ],
             ),
-            const SizedBox(height: 8),
+            SizedBox(height: 8.h),
             Text('数据目录: $dataDir').mono(),
             if (_loadError != null) ...[
-              const SizedBox(height: 6),
+              SizedBox(height: 6.h),
               Text('版本信息读取失败：$_loadError').muted(),
             ],
-            const SizedBox(height: 16),
+            SizedBox(height: 16.h),
             const Divider(),
-            const SizedBox(height: 12),
+            SizedBox(height: 12.h),
             Text('风险提示').p(),
-            const SizedBox(height: 6),
+            SizedBox(height: 6.h),
             Text('v1 明文保存密码，仅适用于内网/单人/受控环境。').muted(),
-            const SizedBox(height: 16),
+            SizedBox(height: 16.h),
             Text('控制端依赖（必须）').p(),
-            const SizedBox(height: 6),
+            SizedBox(height: 6.h),
             const CodeSnippet(
-              code: Text(
-                'ansible-playbook\nsshpass\nunzip\nssh（系统自带）',
-              ),
+              code: Text('ansible-playbook\nsshpass\nunzip\nssh（系统自带）'),
             ),
-            const SizedBox(height: 12),
+            SizedBox(height: 12.h),
             Text('被控端依赖（必须）').p(),
-            const SizedBox(height: 6),
+            SizedBox(height: 6.h),
             const CodeSnippet(code: Text('Linux + Python >= 3.8')),
-            const SizedBox(height: 16),
+            SizedBox(height: 16.h),
             Text('首次配置步骤（最小）').p(),
-            const SizedBox(height: 6),
+            SizedBox(height: 6.h),
             Steps(
               children: const [
                 StepItem(
@@ -121,9 +120,9 @@ class _AboutAndHelpDialogState extends State<_AboutAndHelpDialog> {
                 ),
               ],
             ),
-            const SizedBox(height: 16),
+            SizedBox(height: 16.h),
             Text('常见错误').p(),
-            const SizedBox(height: 6),
+            SizedBox(height: 6.h),
             const CodeSnippet(
               code: Text(
                 '- SSH 连接失败：检查 IP/端口/密码/防火墙\n'
@@ -144,7 +143,7 @@ class _AboutAndHelpDialogState extends State<_AboutAndHelpDialog> {
               context: context,
               builder: (context, overlay) => Card(
                 child: Padding(
-                  padding: const EdgeInsets.all(12),
+                  padding: EdgeInsets.all(12.r),
                   child: Row(
                     children: [
                       const Expanded(child: Text('已复制数据目录路径')),

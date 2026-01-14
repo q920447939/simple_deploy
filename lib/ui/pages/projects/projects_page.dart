@@ -1,6 +1,7 @@
 import 'package:get/get.dart';
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 import 'package:flutter/material.dart' as m;
+import 'package:flutter_screenutil/flutter_screenutil.dart';
 
 import '../../controllers/projects_controller.dart';
 import '../../controllers/playbooks_controller.dart';
@@ -38,14 +39,14 @@ class ProjectsPage extends StatelessWidget {
     final controller = Get.find<ProjectsController>();
 
     return Padding(
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.all(16.r),
       child: Row(
         children: [
           SizedBox(
-            width: 320,
+            width: 320.w,
             child: Card(
               child: Padding(
-                padding: const EdgeInsets.all(12),
+                padding: EdgeInsets.all(12.r),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -77,7 +78,7 @@ class ProjectsPage extends StatelessWidget {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 12),
+                    SizedBox(height: 12.h),
                     m.TextField(
                       decoration: m.InputDecoration(
                         prefixIcon: m.Icon(Icons.search),
@@ -85,7 +86,7 @@ class ProjectsPage extends StatelessWidget {
                       ),
                       onChanged: (v) => controller.query.value = v,
                     ),
-                    const SizedBox(height: 8),
+                    SizedBox(height: 8.h),
                     Obx(() {
                       final desc = controller.sortUpdatedAtDesc.value;
                       return Row(
@@ -102,7 +103,7 @@ class ProjectsPage extends StatelessWidget {
                         ],
                       );
                     }),
-                    const SizedBox(height: 12),
+                    SizedBox(height: 12.h),
                     Expanded(
                       child: Obx(() {
                         final items = controller.visibleProjects;
@@ -140,11 +141,11 @@ class ProjectsPage extends StatelessWidget {
               ),
             ),
           ),
-          const SizedBox(width: 16),
+          SizedBox(width: 16.w),
           Expanded(
             child: Card(
               child: Padding(
-                padding: const EdgeInsets.all(16),
+                padding: EdgeInsets.all(16.r),
                 child: Obx(() {
                   final p = controller.selected;
                   if (p == null) {
@@ -182,7 +183,7 @@ class ProjectsPage extends StatelessWidget {
                             },
                             child: const Text('编辑'),
                           ),
-                          const SizedBox(width: 8),
+                          SizedBox(width: 8.w),
                           DestructiveButton(
                             onPressed: () async {
                               if (Get.isRegistered<PlaybooksController>()) {
@@ -215,13 +216,13 @@ class ProjectsPage extends StatelessWidget {
                           ),
                         ],
                       ),
-                      const SizedBox(height: 12),
+                      SizedBox(height: 12.h),
                       Text('ID: ${p.id}').mono(),
-                      const SizedBox(height: 8),
+                      SizedBox(height: 8.h),
                       Text('创建时间: ${p.createdAt.toIso8601String()}').mono(),
-                      const SizedBox(height: 8),
+                      SizedBox(height: 8.h),
                       Text('更新时间: ${p.updatedAt.toIso8601String()}').mono(),
-                      const SizedBox(height: 16),
+                      SizedBox(height: 16.h),
                       Text('说明').p(),
                       Text('v1：项目用于隔离服务器/Playbook/任务/批次等配置。').muted(),
                     ],
@@ -282,7 +283,7 @@ class _ProjectUpsertDialogState extends State<_ProjectUpsertDialog> {
     return AlertDialog(
       title: Text(widget.title),
       content: SizedBox(
-        width: 520,
+        width: 520.w,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -290,7 +291,7 @@ class _ProjectUpsertDialogState extends State<_ProjectUpsertDialog> {
               controller: _name,
               decoration: const m.InputDecoration(labelText: '名称（必填）'),
             ),
-            const SizedBox(height: 12),
+            SizedBox(height: 12.h),
             m.TextField(
               controller: _desc,
               decoration: const m.InputDecoration(labelText: '简介（可选）'),
