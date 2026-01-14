@@ -20,12 +20,16 @@ class ControlNodeBootstrapper {
   final SshEndpoint endpoint;
   final AppLogger logger;
   final OfflineAssets assets;
+  final bool allowUnsupportedOsAutoInstall;
+  final String controlOsHint;
 
   const ControlNodeBootstrapper({
     required this.conn,
     required this.endpoint,
     required this.logger,
     required this.assets,
+    this.allowUnsupportedOsAutoInstall = false,
+    this.controlOsHint = 'auto',
   });
 
   Future<ControlRuntimeInfo> ensureReady() async {
@@ -34,10 +38,19 @@ class ControlNodeBootstrapper {
     final os = await _readOsRelease();
     final arch = await _readArch();
 
-    final supported = _isSupported(os: os, arch: arch);
+    final supported = _isSupported(
+      os: os,
+      arch: arch,
+      controlOsHint: controlOsHint,
+    );
     logger.info(
       'control.bootstrap.detected',
-      data: {'os': os.toJson(), 'arch': arch, 'supported': supported},
+      data: {
+        'os': os.toJson(),
+        'arch': arch,
+        'supported': supported,
+        'control_os_hint': controlOsHint,
+      },
     );
 
     final pythonOk = await _hasPython312();
@@ -52,11 +65,20 @@ class ControlNodeBootstrapper {
 
     if (needRequired || (supported && needOptional)) {
       if (!supported && needRequired) {
-        throw AppException(
-          code: AppErrorCode.unknown,
-          title: '控制端不支持自动安装',
-          message: '当前仅支持 Ubuntu 24+ 与 银河麒麟 V10 SP3（x86_64/aarch64）。',
-          suggestion: '请手工在控制端安装 python3.12 与 ansible 后重试。',
+        final detected =
+            '检测到: ${os.prettyName ?? 'unknown'} (id=${os.id ?? '?'}, version_id=${os.versionId ?? '?'}, version=${os.version ?? '?'}) arch=$arch';
+        if (!allowUnsupportedOsAutoInstall) {
+          throw AppException(
+            code: AppErrorCode.unknown,
+            title: '控制端不支持自动安装',
+            message:
+                '当前仅支持 Ubuntu 24+ 与 银河麒麟 V10 SP3（x86_64/aarch64）。\n$detected',
+            suggestion: '请手工在控制端安装 python3.12 与 ansible 后重试。',
+          );
+        }
+        logger.warn(
+          'control.bootstrap.unsupported_os_auto_install_forced',
+          data: {'os': os.toJson(), 'arch': arch},
         );
       }
 
@@ -143,9 +165,23 @@ class ControlNodeBootstrapper {
     return r.stdout.trim();
   }
 
-  bool _isSupported({required _OsRelease os, required String arch}) {
+  bool _isSupported({
+    required _OsRelease os,
+    required String arch,
+    required String controlOsHint,
+  }) {
     final isArchOk = arch == 'x86_64' || arch == 'aarch64' || arch == 'arm64';
     if (!isArchOk) return false;
+
+    if (controlOsHint == 'ubuntu24+') {
+      return true;
+    }
+    if (controlOsHint == 'kylin_v10_sp3') {
+      return true;
+    }
+    if (controlOsHint == 'other') {
+      return false;
+    }
 
     final id = (os.id ?? '').toLowerCase();
     final pretty = (os.prettyName ?? '').toLowerCase();

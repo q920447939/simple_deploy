@@ -12,6 +12,7 @@ import '../../model/task.dart';
 import '../../services/app_services.dart';
 import '../../services/core/app_error.dart';
 import '../../services/core/app_logger.dart';
+import '../../storage/atomic_file.dart';
 import '../../storage/batch_lock.dart';
 import 'projects_controller.dart';
 
@@ -379,8 +380,9 @@ class BatchesController extends GetxController {
   }
 
   Future<void> startRunWithFiles(
-    Map<String, Map<String, List<String>>> fileInputs,
-  ) async {
+    Map<String, Map<String, List<String>>> fileInputs, {
+    bool allowUnsupportedControlOsAutoInstall = false,
+  }) async {
     final pid = projectId;
     final batch = selectedBatch;
     if (pid == null || batch == null) return;
@@ -392,11 +394,20 @@ class BatchesController extends GetxController {
         suggestion: '若已 ended，请先“重置为暂停”；若仍 running，请等待或使用“强制解锁/重置”。',
       );
     }
+
+    await _writeLastFileInputs(batch.id, fileInputs);
+
     // Fire-and-forget: 让 UI 可以立即轮询展示进度/日志。
     // 错误会落盘到 runs/<run_id>.json，并写入 app_logs。
     // ignore: unawaited_futures
     AppServices.I.runEngine
-        .startBatchRun(projectId: pid, batch: batch, fileInputs: fileInputs)
+        .startBatchRun(
+          projectId: pid,
+          batch: batch,
+          fileInputs: fileInputs,
+          allowUnsupportedControlOsAutoInstall:
+              allowUnsupportedControlOsAutoInstall,
+        )
         .catchError((e, st) {
           _logger.error(
             'run.background.failed',
@@ -411,6 +422,58 @@ class BatchesController extends GetxController {
     await Future<void>.delayed(const Duration(milliseconds: 200));
     await loadAll();
     await loadRuns();
+  }
+
+  Future<Map<String, Map<String, List<String>>>?> readLastFileInputs(
+    String batchId,
+  ) async {
+    final pid = projectId;
+    if (pid == null) return null;
+    final pp = AppServices.I.projectPaths(pid);
+    final raw =
+        await AtomicFile.readJsonOrNull(pp.batchLastFileInputsFile(batchId)) ??
+        await AtomicFile.readJsonOrNull(
+          pp.batchLastFileInputsLegacyFile(batchId),
+        );
+    if (raw is! Map) return null;
+
+    final out = <String, Map<String, List<String>>>{};
+    for (final e in raw.entries) {
+      if (e.key is! String) continue;
+      if (e.value is! Map) continue;
+      final taskId = e.key as String;
+      final slotMap = <String, List<String>>{};
+      for (final se in (e.value as Map).entries) {
+        if (se.key is! String) continue;
+        final slot = se.key as String;
+        final v = se.value;
+        if (v is List) {
+          final paths = <String>[
+            for (final p in v)
+              if (p is String && p.trim().isNotEmpty) p.trim(),
+          ];
+          slotMap[slot] = paths;
+        }
+      }
+      if (slotMap.isNotEmpty) {
+        out[taskId] = slotMap;
+      }
+    }
+    return out.isEmpty ? null : out;
+  }
+
+  Future<void> _writeLastFileInputs(
+    String batchId,
+    Map<String, Map<String, List<String>>> fileInputs,
+  ) async {
+    final pid = projectId;
+    if (pid == null) return;
+    final pp = AppServices.I.projectPaths(pid);
+    await AtomicFile.writeJson(pp.batchLastFileInputsFile(batchId), fileInputs);
+    final legacy = pp.batchLastFileInputsLegacyFile(batchId);
+    if (await legacy.exists()) {
+      await legacy.delete();
+    }
   }
 
   Future<void> _loadLastRuns(String projectId, List<Batch> list) async {

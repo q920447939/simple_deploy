@@ -40,6 +40,7 @@ class RunEngine {
     required String projectId,
     required Batch batch,
     required Map<String, Map<String, List<String>>> fileInputs,
+    bool allowUnsupportedControlOsAutoInstall = false,
   }) async {
     final pp = ProjectPaths(projectsRoot: projectsRoot, projectId: projectId);
     await pp.ensureExists();
@@ -188,6 +189,8 @@ class RunEngine {
           endpoint: endpoint,
           logger: logger,
           assets: OfflineAssets.locate(),
+          controlOsHint: controlServer.controlOsHint,
+          allowUnsupportedOsAutoInstall: allowUnsupportedControlOsAutoInstall,
         ).ensureReady();
 
         await _requireRemoteOk(
@@ -206,9 +209,11 @@ class RunEngine {
           'mkdir -p ${_dq(prepared.remoteRunDir)}',
           title: '创建控制端运行目录失败',
         );
-        await conn.uploadFile(
-          prepared.bundleZip,
-          '${prepared.remoteRunDir}/bundle.zip',
+        await _uploadFileWithVerify(
+          conn,
+          local: prepared.bundleZip,
+          remote: '${prepared.remoteRunDir}/bundle.zip',
+          title: '上传 bundle.zip 失败',
         );
         await _requireRemoteOk(
           conn,
@@ -696,6 +701,58 @@ class RunEngine {
         suggestion: '检查控制端权限/依赖，并查看控制端侧日志。',
       );
     }
+  }
+
+  Future<void> _uploadFileWithVerify(
+    SshConnection conn, {
+    required File local,
+    required String remote,
+    required String title,
+  }) async {
+    final localSize = await local.length();
+    if (localSize <= 0) {
+      throw AppException(
+        code: AppErrorCode.storageIo,
+        title: title,
+        message: '本地文件大小异常：size=$localSize path=${local.path}',
+        suggestion: '检查本机磁盘空间与文件权限后重试。',
+      );
+    }
+
+    Future<int?> readRemoteSize() async {
+      final r = await conn.execWithResult(
+        'bash -lc "test -f ${_dq(remote)} && wc -c < ${_dq(remote)}"',
+      );
+      if (r.exitCode != 0) return null;
+      return int.tryParse(r.stdout.trim());
+    }
+
+    for (var attempt = 1; attempt <= 2; attempt++) {
+      await conn.uploadFile(local, remote);
+      final remoteSize = await readRemoteSize();
+      if (remoteSize == localSize) {
+        return;
+      }
+      logger.warn(
+        'run.bundle.upload.size_mismatch',
+        data: {
+          'attempt': attempt,
+          'local': local.path,
+          'local_size': localSize,
+          'remote': remote,
+          'remote_size': remoteSize,
+        },
+      );
+    }
+
+    final finalRemoteSize = await readRemoteSize();
+    throw AppException(
+      code: AppErrorCode.storageIo,
+      title: title,
+      message:
+          '上传后文件大小不一致：local=$localSize remote=${finalRemoteSize ?? 'unknown'} path=$remote',
+      suggestion: '检查控制端磁盘空间、/tmp 可写性与网络稳定性后重试。',
+    );
   }
 }
 

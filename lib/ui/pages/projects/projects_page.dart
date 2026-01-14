@@ -8,15 +8,11 @@ import '../../controllers/playbooks_controller.dart';
 import '../../../services/core/app_error.dart';
 import '../../widgets/app_error_dialog.dart';
 import '../../widgets/confirm_dialogs.dart';
+import '../../utils/date_time_fmt.dart';
+import '../../utils/layout_metrics.dart';
 
 class ProjectsPage extends StatelessWidget {
   const ProjectsPage({super.key});
-
-  static String _fmtUpdatedAt(DateTime dt) {
-    final d = dt.toLocal();
-    String two(int v) => v < 10 ? '0$v' : '$v';
-    return '${d.year}-${two(d.month)}-${two(d.day)} ${two(d.hour)}:${two(d.minute)}';
-  }
 
   Future<bool> _confirmProjectSwitchIfNeeded(BuildContext context) async {
     if (!Get.isRegistered<PlaybooksController>()) {
@@ -40,198 +36,217 @@ class ProjectsPage extends StatelessWidget {
 
     return Padding(
       padding: EdgeInsets.all(16.r),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 320.w,
-            child: Card(
-              child: Padding(
-                padding: EdgeInsets.all(12.r),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final leftWidth = masterDetailLeftWidth(
+            constraints,
+            min: 300,
+            max: 460,
+            ratio: 0.32,
+          );
+          return Row(
+            children: [
+              SizedBox(
+                width: leftWidth,
+                child: Card(
+                  child: Padding(
+                    padding: EdgeInsets.all(12.r),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Expanded(child: Text('项目列表').p()),
-                        PrimaryButton(
-                          onPressed: () async {
-                            final created =
-                                await showDialog<_ProjectUpsertResult>(
-                                  context: context,
-                                  builder: (context) =>
-                                      const _ProjectUpsertDialog(title: '新增项目'),
-                                );
-                            if (created == null) return;
-                            try {
-                              await controller.create(
-                                name: created.name,
-                                description: created.description,
-                              );
-                            } on AppException catch (e) {
-                              if (context.mounted) {
-                                await showAppErrorDialog(context, e);
-                              }
+                        Row(
+                          children: [
+                            Expanded(child: Text('项目列表').p()),
+                            PrimaryButton(
+                              onPressed: () async {
+                                final created =
+                                    await showDialog<_ProjectUpsertResult>(
+                                      context: context,
+                                      builder: (context) =>
+                                          const _ProjectUpsertDialog(
+                                            title: '新增项目',
+                                          ),
+                                    );
+                                if (created == null) return;
+                                try {
+                                  await controller.create(
+                                    name: created.name,
+                                    description: created.description,
+                                  );
+                                } on AppException catch (e) {
+                                  if (context.mounted) {
+                                    await showAppErrorDialog(context, e);
+                                  }
+                                }
+                              },
+                              density: ButtonDensity.icon,
+                              child: const Icon(Icons.add),
+                            ),
+                          ],
+                        ),
+                        SizedBox(height: 12.h),
+                        m.TextField(
+                          decoration: m.InputDecoration(
+                            prefixIcon: m.Icon(Icons.search),
+                            labelText: '搜索（按名称）',
+                          ),
+                          onChanged: (v) => controller.query.value = v,
+                        ),
+                        SizedBox(height: 8.h),
+                        Obx(() {
+                          final desc = controller.sortUpdatedAtDesc.value;
+                          return Row(
+                            children: [
+                              Expanded(child: Text('按更新时间排序').muted()),
+                              GhostButton(
+                                density: ButtonDensity.icon,
+                                onPressed: () =>
+                                    controller.sortUpdatedAtDesc.value = !desc,
+                                child: Icon(
+                                  desc
+                                      ? Icons.arrow_downward
+                                      : Icons.arrow_upward,
+                                ),
+                              ),
+                            ],
+                          );
+                        }),
+                        SizedBox(height: 12.h),
+                        Expanded(
+                          child: Obx(() {
+                            final items = controller.visibleProjects;
+                            if (items.isEmpty) {
+                              return const Center(child: Text('暂无项目'));
                             }
-                          },
-                          density: ButtonDensity.icon,
-                          child: const Icon(Icons.add),
+                            return m.ListView.builder(
+                              itemCount: items.length,
+                              itemBuilder: (context, i) {
+                                final p = items[i];
+                                final selected =
+                                    controller.selectedId.value == p.id;
+                                return m.ListTile(
+                                  selected: selected,
+                                  title: Text(p.name),
+                                  subtitle: Text(
+                                    p.description.isEmpty ? '—' : p.description,
+                                  ).muted(),
+                                  trailing: Text(
+                                    formatDateTime(p.updatedAt),
+                                  ).mono(),
+                                  onTap: () async {
+                                    if (selected) return;
+                                    final ok =
+                                        await _confirmProjectSwitchIfNeeded(
+                                          context,
+                                        );
+                                    if (!ok) return;
+                                    controller.selectedId.value = p.id;
+                                  },
+                                );
+                              },
+                            );
+                          }),
                         ),
                       ],
                     ),
-                    SizedBox(height: 12.h),
-                    m.TextField(
-                      decoration: m.InputDecoration(
-                        prefixIcon: m.Icon(Icons.search),
-                        labelText: '搜索（按名称）',
-                      ),
-                      onChanged: (v) => controller.query.value = v,
-                    ),
-                    SizedBox(height: 8.h),
-                    Obx(() {
-                      final desc = controller.sortUpdatedAtDesc.value;
-                      return Row(
+                  ),
+                ),
+              ),
+              SizedBox(width: 16.w),
+              Expanded(
+                child: Card(
+                  child: Padding(
+                    padding: EdgeInsets.all(16.r),
+                    child: Obx(() {
+                      final p = controller.selected;
+                      if (p == null) {
+                        return const Center(child: Text('选择一个项目查看详情'));
+                      }
+
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Expanded(child: Text('按更新时间排序').muted()),
-                          GhostButton(
-                            density: ButtonDensity.icon,
-                            onPressed: () =>
-                                controller.sortUpdatedAtDesc.value = !desc,
-                            child: Icon(
-                              desc ? Icons.arrow_downward : Icons.arrow_upward,
-                            ),
+                          Row(
+                            children: [
+                              Expanded(child: Text(p.name).h2()),
+                              GhostButton(
+                                onPressed: () async {
+                                  final edited =
+                                      await showDialog<_ProjectUpsertResult>(
+                                        context: context,
+                                        builder: (context) =>
+                                            _ProjectUpsertDialog(
+                                              title: '编辑项目',
+                                              initialName: p.name,
+                                              initialDesc: p.description,
+                                            ),
+                                      );
+                                  if (edited == null) return;
+                                  try {
+                                    await controller.updateSelected(
+                                      name: edited.name,
+                                      description: edited.description,
+                                    );
+                                  } on AppException catch (e) {
+                                    if (context.mounted) {
+                                      await showAppErrorDialog(context, e);
+                                    }
+                                  }
+                                },
+                                child: const Text('编辑'),
+                              ),
+                              SizedBox(width: 8.w),
+                              DestructiveButton(
+                                onPressed: () async {
+                                  if (Get.isRegistered<PlaybooksController>()) {
+                                    final pc = Get.find<PlaybooksController>();
+                                    if (pc.dirty.value) {
+                                      final ok = await confirmDiscardChanges(
+                                        context,
+                                        message:
+                                            '当前 Playbook 有未保存修改，删除项目将丢失这些修改。',
+                                        discardLabel: '丢弃并继续',
+                                      );
+                                      if (!ok) return;
+                                      pc.discardEdits();
+                                    }
+                                  }
+                                  if (!context.mounted) return;
+                                  final ok = await confirmDeleteProject(
+                                    context,
+                                    projectName: p.name,
+                                  );
+                                  if (!ok) return;
+                                  try {
+                                    await controller.deleteSelected();
+                                  } on AppException catch (e) {
+                                    if (context.mounted) {
+                                      await showAppErrorDialog(context, e);
+                                    }
+                                  }
+                                },
+                                child: const Text('删除'),
+                              ),
+                            ],
                           ),
+                          SizedBox(height: 12.h),
+                          Text('ID: ${p.id}').mono(),
+                          SizedBox(height: 8.h),
+                          Text('创建时间: ${formatDateTime(p.createdAt)}').mono(),
+                          SizedBox(height: 8.h),
+                          Text('更新时间: ${formatDateTime(p.updatedAt)}').mono(),
+                          SizedBox(height: 16.h),
+                          Text('说明').p(),
+                          Text('v1：项目用于隔离服务器/Playbook/任务/批次等配置。').muted(),
                         ],
                       );
                     }),
-                    SizedBox(height: 12.h),
-                    Expanded(
-                      child: Obx(() {
-                        final items = controller.visibleProjects;
-                        if (items.isEmpty) {
-                          return const Center(child: Text('暂无项目'));
-                        }
-                        return m.ListView.builder(
-                          itemCount: items.length,
-                          itemBuilder: (context, i) {
-                            final p = items[i];
-                            final selected =
-                                controller.selectedId.value == p.id;
-                            return m.ListTile(
-                              selected: selected,
-                              title: Text(p.name),
-                              subtitle: Text(
-                                p.description.isEmpty ? '—' : p.description,
-                              ).muted(),
-                              trailing: Text(_fmtUpdatedAt(p.updatedAt)).mono(),
-                              onTap: () async {
-                                if (selected) return;
-                                final ok = await _confirmProjectSwitchIfNeeded(
-                                  context,
-                                );
-                                if (!ok) return;
-                                controller.selectedId.value = p.id;
-                              },
-                            );
-                          },
-                        );
-                      }),
-                    ),
-                  ],
+                  ),
                 ),
               ),
-            ),
-          ),
-          SizedBox(width: 16.w),
-          Expanded(
-            child: Card(
-              child: Padding(
-                padding: EdgeInsets.all(16.r),
-                child: Obx(() {
-                  final p = controller.selected;
-                  if (p == null) {
-                    return const Center(child: Text('选择一个项目查看详情'));
-                  }
-
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(child: Text(p.name).h2()),
-                          GhostButton(
-                            onPressed: () async {
-                              final edited =
-                                  await showDialog<_ProjectUpsertResult>(
-                                    context: context,
-                                    builder: (context) => _ProjectUpsertDialog(
-                                      title: '编辑项目',
-                                      initialName: p.name,
-                                      initialDesc: p.description,
-                                    ),
-                                  );
-                              if (edited == null) return;
-                              try {
-                                await controller.updateSelected(
-                                  name: edited.name,
-                                  description: edited.description,
-                                );
-                              } on AppException catch (e) {
-                                if (context.mounted) {
-                                  await showAppErrorDialog(context, e);
-                                }
-                              }
-                            },
-                            child: const Text('编辑'),
-                          ),
-                          SizedBox(width: 8.w),
-                          DestructiveButton(
-                            onPressed: () async {
-                              if (Get.isRegistered<PlaybooksController>()) {
-                                final pc = Get.find<PlaybooksController>();
-                                if (pc.dirty.value) {
-                                  final ok = await confirmDiscardChanges(
-                                    context,
-                                    message: '当前 Playbook 有未保存修改，删除项目将丢失这些修改。',
-                                    discardLabel: '丢弃并继续',
-                                  );
-                                  if (!ok) return;
-                                  pc.discardEdits();
-                                }
-                              }
-                              if (!context.mounted) return;
-                              final ok = await confirmDeleteProject(
-                                context,
-                                projectName: p.name,
-                              );
-                              if (!ok) return;
-                              try {
-                                await controller.deleteSelected();
-                              } on AppException catch (e) {
-                                if (context.mounted) {
-                                  await showAppErrorDialog(context, e);
-                                }
-                              }
-                            },
-                            child: const Text('删除'),
-                          ),
-                        ],
-                      ),
-                      SizedBox(height: 12.h),
-                      Text('ID: ${p.id}').mono(),
-                      SizedBox(height: 8.h),
-                      Text('创建时间: ${p.createdAt.toIso8601String()}').mono(),
-                      SizedBox(height: 8.h),
-                      Text('更新时间: ${p.updatedAt.toIso8601String()}').mono(),
-                      SizedBox(height: 16.h),
-                      Text('说明').p(),
-                      Text('v1：项目用于隔离服务器/Playbook/任务/批次等配置。').muted(),
-                    ],
-                  );
-                }),
-              ),
-            ),
-          ),
-        ],
+            ],
+          );
+        },
       ),
     );
   }

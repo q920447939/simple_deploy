@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart' as m;
 import 'package:get/get.dart';
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
@@ -22,10 +23,6 @@ class AppShell extends StatelessWidget {
     ProjectsController(),
     permanent: true,
   );
-
-  NavigationItem _item(String label, IconData icon) {
-    return NavigationItem(label: Text(label), child: Icon(icon));
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -53,15 +50,30 @@ class AppShell extends StatelessWidget {
     return Scaffold(
       headers: [
         AppBar(
-          title: const Text('Simple Deploy'),
+          title: Obx(() {
+            final p = projects.selected;
+            if (p == null) {
+              return const Text('未选择项目');
+            }
+            return Text(p.name);
+          }),
           subtitle: Obx(() {
             final p = projects.selected;
             if (p == null) {
               return subtitle ?? const SizedBox.shrink();
             }
-            return Text('${p.name}  ·  ${p.id.substring(0, 8)}');
+            return Text(p.id.substring(0, 8)).mono();
           }),
           trailing: [
+            OutlineButton(
+              onPressed: () async {
+                if (nav.index.value == 0) return;
+                final ok = await confirmLeavePlaybooksIfNeeded();
+                if (!ok) return;
+                nav.select(0);
+              },
+              child: const Text('切换项目'),
+            ),
             GhostButton(
               density: ButtonDensity.icon,
               onPressed: () {
@@ -77,65 +89,35 @@ class AppShell extends StatelessWidget {
       child: Row(
         children: [
           SizedBox(
-            width: 220,
-            child: Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Obx(() {
-                    final p = projects.selected;
-                    return Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text('当前项目').muted(),
-                            const SizedBox(height: 6),
-                            Text(p?.name ?? '未选择').p(),
-                            if (p != null) ...[
-                              const SizedBox(height: 4),
-                              Text(p.id.substring(0, 8)).mono(),
-                            ],
-                            const SizedBox(height: 10),
-                            PrimaryButton(
-                              onPressed: () async {
-                                if (nav.index.value == 0) return;
-                                final ok =
-                                    await confirmLeavePlaybooksIfNeeded();
-                                if (!ok) return;
-                                nav.select(0);
-                              },
-                              child: const Text('切换项目'),
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  }),
-                ),
-                Expanded(
-                  child: Obx(
-                    () => NavigationRail(
-                      index: nav.index.value,
-                      onSelected: (i) async {
-                        if (i == nav.index.value) return;
-                        final ok = await confirmLeavePlaybooksIfNeeded();
-                        if (!ok) return;
-                        nav.select(i);
-                      },
-                      children: [
-                        _item('项目', Icons.folder),
-                        _item('服务器', Icons.dns),
-                        _item('Playbook', Icons.description),
-                        _item('任务', Icons.checklist),
-                        _item('批次', Icons.playlist_play),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
+            width: 180,
+            child: Obx(() {
+              m.Widget tile(int index, String label, IconData icon) {
+                final selected = nav.index.value == index;
+                return m.ListTile(
+                  dense: true,
+                  selected: selected,
+                  leading: Icon(icon, size: 18),
+                  title: selected ? Text(label) : Text(label).muted(),
+                  onTap: () async {
+                    if (index == nav.index.value) return;
+                    final ok = await confirmLeavePlaybooksIfNeeded();
+                    if (!ok) return;
+                    nav.select(index);
+                  },
+                );
+              }
+
+              return m.ListView(
+                padding: const m.EdgeInsets.symmetric(vertical: 8),
+                children: [
+                  tile(0, '项目', Icons.folder),
+                  tile(1, '服务器', Icons.dns),
+                  tile(2, 'Playbook', Icons.description),
+                  tile(3, '任务', Icons.checklist),
+                  tile(4, '批次', Icons.playlist_play),
+                ],
+              );
+            }),
           ),
           const VerticalDivider(),
           Expanded(

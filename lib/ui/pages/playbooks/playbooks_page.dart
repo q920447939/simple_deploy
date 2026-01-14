@@ -11,15 +11,11 @@ import '../../controllers/playbooks_controller.dart';
 import '../../widgets/app_error_dialog.dart';
 import '../../widgets/confirm_dialogs.dart';
 import '../../widgets/project_guard.dart';
+import '../../utils/date_time_fmt.dart';
+import '../../utils/layout_metrics.dart';
 
 class PlaybooksPage extends StatelessWidget {
   const PlaybooksPage({super.key});
-
-  static String _fmtUpdatedAt(DateTime dt) {
-    final d = dt.toLocal();
-    String two(int v) => v < 10 ? '0$v' : '$v';
-    return '${d.year}-${two(d.month)}-${two(d.day)} ${two(d.hour)}:${two(d.minute)}';
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -28,171 +24,188 @@ class PlaybooksPage extends StatelessWidget {
     return ProjectGuard(
       child: Padding(
         padding: EdgeInsets.all(16.r),
-        child: Row(
-          children: [
-            SizedBox(
-              width: 360.w,
-              child: Card(
-                child: Padding(
-                  padding: EdgeInsets.all(12.r),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final leftWidth = masterDetailLeftWidth(
+              constraints,
+              min: 340,
+              max: 520,
+              ratio: 0.36,
+            );
+            return Row(
+              children: [
+                SizedBox(
+                  width: leftWidth,
+                  child: Card(
+                    child: Padding(
+                      padding: EdgeInsets.all(12.r),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Expanded(child: Text('Playbook').p()),
-                          Obx(() {
-                            final count = controller.bulkSelectedIds.length;
-                            return GhostButton(
-                              density: ButtonDensity.icon,
-                              onPressed: count == 0
-                                  ? null
-                                  : () async {
+                          Row(
+                            children: [
+                              Expanded(child: Text('Playbook').p()),
+                              Obx(() {
+                                final count = controller.bulkSelectedIds.length;
+                                return GhostButton(
+                                  density: ButtonDensity.icon,
+                                  onPressed: count == 0
+                                      ? null
+                                      : () async {
+                                          if (controller.dirty.value) {
+                                            final ok = await confirmDiscardChanges(
+                                              context,
+                                              message:
+                                                  '当前 Playbook 有未保存修改，批量删除将丢失这些修改。',
+                                              discardLabel: '丢弃并继续',
+                                            );
+                                            if (!ok) return;
+                                            controller.discardEdits();
+                                          }
+                                          if (!context.mounted) return;
+                                          final ok = await showDialog<bool>(
+                                            context: context,
+                                            builder: (context) =>
+                                                _BulkDeletePlaybooksDialog(
+                                                  count: count,
+                                                ),
+                                          );
+                                          if (ok != true) return;
+                                          try {
+                                            final ids = controller
+                                                .bulkSelectedIds
+                                                .toList(growable: false);
+                                            await controller.deleteMany(ids);
+                                          } on AppException catch (e) {
+                                            if (context.mounted) {
+                                              await showAppErrorDialog(
+                                                context,
+                                                e,
+                                              );
+                                            }
+                                          }
+                                        },
+                                  child: const Icon(Icons.delete_outline),
+                                );
+                              }),
+                              SizedBox(width: 8.w),
+                              PrimaryButton(
+                                density: ButtonDensity.icon,
+                                onPressed: () async {
+                                  if (controller.dirty.value) {
+                                    final ok = await confirmDiscardChanges(
+                                      context,
+                                      message: '当前 Playbook 有未保存修改，新建将丢失这些修改。',
+                                      discardLabel: '丢弃并新建',
+                                    );
+                                    if (!ok) return;
+                                    if (!context.mounted) return;
+                                    controller.discardEdits();
+                                  }
+                                  final created =
+                                      await showDialog<_CreatePlaybookResult>(
+                                        context: context,
+                                        builder: (context) =>
+                                            const _CreatePlaybookDialog(),
+                                      );
+                                  if (created == null) return;
+                                  try {
+                                    await controller.create(
+                                      name: created.name,
+                                      description: created.description,
+                                      fileName: created.fileName,
+                                    );
+                                  } on AppException catch (e) {
+                                    if (context.mounted) {
+                                      await showAppErrorDialog(context, e);
+                                    }
+                                  }
+                                },
+                                child: const Icon(Icons.add),
+                              ),
+                            ],
+                          ),
+                          SizedBox(height: 12.h),
+                          Expanded(
+                            child: Obx(() {
+                              final items = controller.playbooks;
+                              if (items.isEmpty) {
+                                return const Center(child: Text('暂无 Playbook'));
+                              }
+                              return m.ListView.builder(
+                                itemCount: items.length,
+                                itemBuilder: (context, i) {
+                                  final p = items[i];
+                                  final selected =
+                                      controller.selectedId.value == p.id;
+                                  final checked = controller.isBulkSelected(
+                                    p.id,
+                                  );
+                                  return m.ListTile(
+                                    selected: selected,
+                                    title: Text(p.name),
+                                    leading: m.Checkbox(
+                                      value: checked,
+                                      onChanged: (v) => controller
+                                          .setBulkSelected(p.id, v == true),
+                                    ),
+                                    subtitle: Column(
+                                      crossAxisAlignment:
+                                          m.CrossAxisAlignment.start,
+                                      mainAxisSize: m.MainAxisSize.min,
+                                      children: [
+                                        Text(
+                                          path.basename(p.relativePath),
+                                        ).mono(),
+                                        Text(
+                                          p.description.isEmpty
+                                              ? '—'
+                                              : p.description,
+                                        ).muted(),
+                                      ],
+                                    ),
+                                    trailing: Text(
+                                      formatDateTime(p.updatedAt),
+                                    ).mono(),
+                                    onTap: () async {
+                                      if (selected) return;
                                       if (controller.dirty.value) {
                                         final ok = await confirmDiscardChanges(
                                           context,
                                           message:
-                                              '当前 Playbook 有未保存修改，批量删除将丢失这些修改。',
-                                          discardLabel: '丢弃并继续',
+                                              '当前 Playbook 有未保存修改，切换将丢失这些修改。',
+                                          discardLabel: '丢弃并切换',
                                         );
                                         if (!ok) return;
                                         controller.discardEdits();
                                       }
-                                      if (!context.mounted) return;
-                                      final ok = await showDialog<bool>(
-                                        context: context,
-                                        builder: (context) =>
-                                            _BulkDeletePlaybooksDialog(
-                                              count: count,
-                                            ),
-                                      );
-                                      if (ok != true) return;
-                                      try {
-                                        final ids = controller.bulkSelectedIds
-                                            .toList(growable: false);
-                                        await controller.deleteMany(ids);
-                                      } on AppException catch (e) {
-                                        if (context.mounted) {
-                                          await showAppErrorDialog(context, e);
-                                        }
-                                      }
+                                      controller.selectedId.value = p.id;
                                     },
-                              child: const Icon(Icons.delete_outline),
-                            );
-                          }),
-                          SizedBox(width: 8.w),
-                          PrimaryButton(
-                            density: ButtonDensity.icon,
-                            onPressed: () async {
-                              if (controller.dirty.value) {
-                                final ok = await confirmDiscardChanges(
-                                  context,
-                                  message: '当前 Playbook 有未保存修改，新建将丢失这些修改。',
-                                  discardLabel: '丢弃并新建',
-                                );
-                                if (!ok) return;
-                                if (!context.mounted) return;
-                                controller.discardEdits();
-                              }
-                              final created =
-                                  await showDialog<_CreatePlaybookResult>(
-                                    context: context,
-                                    builder: (context) =>
-                                        const _CreatePlaybookDialog(),
                                   );
-                              if (created == null) return;
-                              try {
-                                await controller.create(
-                                  name: created.name,
-                                  description: created.description,
-                                  fileName: created.fileName,
-                                );
-                              } on AppException catch (e) {
-                                if (context.mounted) {
-                                  await showAppErrorDialog(context, e);
-                                }
-                              }
-                            },
-                            child: const Icon(Icons.add),
+                                },
+                              );
+                            }),
                           ),
                         ],
                       ),
-                      SizedBox(height: 12.h),
-                      Expanded(
-                        child: Obx(() {
-                          final items = controller.playbooks;
-                          if (items.isEmpty) {
-                            return const Center(child: Text('暂无 Playbook'));
-                          }
-                          return m.ListView.builder(
-                            itemCount: items.length,
-                            itemBuilder: (context, i) {
-                              final p = items[i];
-                              final selected =
-                                  controller.selectedId.value == p.id;
-                              final checked = controller.isBulkSelected(p.id);
-                              return m.ListTile(
-                                selected: selected,
-                                title: Text(p.name),
-                                leading: m.Checkbox(
-                                  value: checked,
-                                  onChanged: (v) => controller.setBulkSelected(
-                                    p.id,
-                                    v == true,
-                                  ),
-                                ),
-                                subtitle: Column(
-                                  crossAxisAlignment:
-                                      m.CrossAxisAlignment.start,
-                                  mainAxisSize: m.MainAxisSize.min,
-                                  children: [
-                                    Text(path.basename(p.relativePath)).mono(),
-                                    Text(
-                                      p.description.isEmpty
-                                          ? '—'
-                                          : p.description,
-                                    ).muted(),
-                                  ],
-                                ),
-                                trailing: Text(
-                                  _fmtUpdatedAt(p.updatedAt),
-                                ).mono(),
-                                onTap: () async {
-                                  if (selected) return;
-                                  if (controller.dirty.value) {
-                                    final ok = await confirmDiscardChanges(
-                                      context,
-                                      message: '当前 Playbook 有未保存修改，切换将丢失这些修改。',
-                                      discardLabel: '丢弃并切换',
-                                    );
-                                    if (!ok) return;
-                                    controller.discardEdits();
-                                  }
-                                  controller.selectedId.value = p.id;
-                                },
-                              );
-                            },
-                          );
-                        }),
-                      ),
-                    ],
+                    ),
                   ),
                 ),
-              ),
-            ),
-            SizedBox(width: 16.w),
-            Expanded(
-              child: Obx(() {
-                final meta = controller.selected;
-                if (meta == null) {
-                  return const Card(
-                    child: Center(child: Text('选择一个 Playbook 查看详情')),
-                  );
-                }
-                return _PlaybookDetail(meta: meta);
-              }),
-            ),
-          ],
+                SizedBox(width: 16.w),
+                Expanded(
+                  child: Obx(() {
+                    final meta = controller.selected;
+                    if (meta == null) {
+                      return const Card(
+                        child: Center(child: Text('选择一个 Playbook 查看详情')),
+                      );
+                    }
+                    return _PlaybookDetail(meta: meta);
+                  }),
+                ),
+              ],
+            );
+          },
         ),
       ),
     );
@@ -344,7 +357,7 @@ class _PlaybookDetailState extends State<_PlaybookDetail> {
             SizedBox(height: 8.h),
             Text('路径: ${meta.relativePath}').mono(),
             SizedBox(height: 8.h),
-            Text('更新时间: ${meta.updatedAt.toIso8601String()}').mono(),
+            Text('更新时间: ${formatDateTime(meta.updatedAt)}').mono(),
             SizedBox(height: 12.h),
             Row(
               children: [

@@ -12,6 +12,7 @@ import '../../controllers/playbooks_controller.dart';
 import '../../controllers/tasks_controller.dart';
 import '../../widgets/app_error_dialog.dart';
 import '../../widgets/project_guard.dart';
+import '../../utils/layout_metrics.dart';
 
 class TasksPage extends StatelessWidget {
   const TasksPage({super.key});
@@ -24,108 +25,131 @@ class TasksPage extends StatelessWidget {
     return ProjectGuard(
       child: Padding(
         padding: EdgeInsets.all(16.r),
-        child: Row(
-          children: [
-            SizedBox(
-              width: 360.w,
-              child: Card(
-                child: Padding(
-                  padding: EdgeInsets.all(12.r),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final leftWidth = masterDetailLeftWidth(
+              constraints,
+              min: 340,
+              max: 520,
+              ratio: 0.36,
+            );
+            return Row(
+              children: [
+                SizedBox(
+                  width: leftWidth,
+                  child: Card(
+                    child: Padding(
+                      padding: EdgeInsets.all(12.r),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Expanded(child: Text('任务').p()),
+                          Row(
+                            children: [
+                              Expanded(child: Text('任务').p()),
+                              Obx(() {
+                                final canCreate =
+                                    playbooks.playbooks.isNotEmpty;
+                                return PrimaryButton(
+                                  density: ButtonDensity.icon,
+                                  onPressed: !canCreate
+                                      ? null
+                                      : () async {
+                                          final created =
+                                              await showDialog<Task>(
+                                                context: context,
+                                                builder: (context) =>
+                                                    _TaskEditDialog(
+                                                      initial: null,
+                                                      playbooks:
+                                                          playbooks.playbooks,
+                                                    ),
+                                              );
+                                          if (created == null) return;
+                                          try {
+                                            await controller.upsert(created);
+                                          } on AppException catch (e) {
+                                            if (context.mounted) {
+                                              await showAppErrorDialog(
+                                                context,
+                                                e,
+                                              );
+                                            }
+                                          }
+                                        },
+                                  child: const Icon(Icons.add),
+                                );
+                              }),
+                            ],
+                          ),
                           Obx(() {
-                            final canCreate = playbooks.playbooks.isNotEmpty;
-                            return PrimaryButton(
-                              density: ButtonDensity.icon,
-                              onPressed: !canCreate
-                                  ? null
-                                  : () async {
-                                      final created = await showDialog<Task>(
-                                        context: context,
-                                        builder: (context) => _TaskEditDialog(
-                                          initial: null,
-                                          playbooks: playbooks.playbooks,
-                                        ),
-                                      );
-                                      if (created == null) return;
-                                      try {
-                                        await controller.upsert(created);
-                                      } on AppException catch (e) {
-                                        if (context.mounted) {
-                                          await showAppErrorDialog(context, e);
-                                        }
-                                      }
-                                    },
-                              child: const Icon(Icons.add),
+                            if (playbooks.playbooks.isNotEmpty) {
+                              return const SizedBox.shrink();
+                            }
+                            return Padding(
+                              padding: EdgeInsets.only(top: 8.h),
+                              child: const Text(
+                                '提示：请先创建 Playbook，才能新增任务。',
+                              ).muted(),
                             );
                           }),
+                          SizedBox(height: 12.h),
+                          Expanded(
+                            child: Obx(() {
+                              final items = controller.tasks;
+                              if (items.isEmpty) {
+                                return const Center(child: Text('暂无任务'));
+                              }
+                              return m.ListView.builder(
+                                itemCount: items.length,
+                                itemBuilder: (context, i) {
+                                  final t = items[i];
+                                  final selected =
+                                      controller.selectedId.value == t.id;
+                                  final pb = playbooks.playbooks
+                                      .firstWhereOrNull(
+                                        (p) => p.id == t.playbookId,
+                                      );
+                                  final slotText = t.fileSlots.isEmpty
+                                      ? '槽位: 无'
+                                      : '槽位: ${t.fileSlots.length}';
+                                  return m.ListTile(
+                                    selected: selected,
+                                    title: Text(t.name),
+                                    subtitle: Text(
+                                      pb == null
+                                          ? 'Playbook: 未找到 · $slotText'
+                                          : 'Playbook: ${pb.name} · $slotText',
+                                    ).muted(),
+                                    onTap: () =>
+                                        controller.selectedId.value = t.id,
+                                  );
+                                },
+                              );
+                            }),
+                          ),
                         ],
                       ),
-                      Obx(() {
-                        if (playbooks.playbooks.isNotEmpty) {
-                          return const SizedBox.shrink();
-                        }
-                        return Padding(
-                          padding: EdgeInsets.only(top: 8.h),
-                          child: const Text('提示：请先创建 Playbook，才能新增任务。').muted(),
-                        );
-                      }),
-                      SizedBox(height: 12.h),
-                      Expanded(
-                        child: Obx(() {
-                          final items = controller.tasks;
-                          if (items.isEmpty) {
-                            return const Center(child: Text('暂无任务'));
-                          }
-                          return m.ListView.builder(
-                            itemCount: items.length,
-                            itemBuilder: (context, i) {
-                              final t = items[i];
-                              final selected =
-                                  controller.selectedId.value == t.id;
-                              final pb = playbooks.playbooks.firstWhereOrNull(
-                                (p) => p.id == t.playbookId,
-                              );
-                              final slotText = t.fileSlots.isEmpty
-                                  ? '槽位: 无'
-                                  : '槽位: ${t.fileSlots.length}';
-                              return m.ListTile(
-                                selected: selected,
-                                title: Text(t.name),
-                                subtitle: Text(
-                                  pb == null
-                                      ? 'Playbook: 未找到 · $slotText'
-                                      : 'Playbook: ${pb.name} · $slotText',
-                                ).muted(),
-                                onTap: () => controller.selectedId.value = t.id,
-                              );
-                            },
-                          );
-                        }),
-                      ),
-                    ],
+                    ),
                   ),
                 ),
-              ),
-            ),
-            SizedBox(width: 16.w),
-            Expanded(
-              child: Obx(() {
-                final t = controller.selected;
-                if (t == null) {
-                  return const Card(child: Center(child: Text('选择一个任务查看详情')));
-                }
-                final pb = playbooks.playbooks.firstWhereOrNull(
-                  (p) => p.id == t.playbookId,
-                );
-                return _TaskDetail(task: t, playbook: pb);
-              }),
-            ),
-          ],
+                SizedBox(width: 16.w),
+                Expanded(
+                  child: Obx(() {
+                    final t = controller.selected;
+                    if (t == null) {
+                      return const Card(
+                        child: Center(child: Text('选择一个任务查看详情')),
+                      );
+                    }
+                    final pb = playbooks.playbooks.firstWhereOrNull(
+                      (p) => p.id == t.playbookId,
+                    );
+                    return _TaskDetail(task: t, playbook: pb);
+                  }),
+                ),
+              ],
+            );
+          },
         ),
       ),
     );

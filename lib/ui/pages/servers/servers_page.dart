@@ -9,6 +9,7 @@ import '../../../services/core/app_error.dart';
 import '../../controllers/servers_controller.dart';
 import '../../widgets/app_error_dialog.dart';
 import '../../widgets/project_guard.dart';
+import '../../utils/layout_metrics.dart';
 
 class ServersPage extends StatelessWidget {
   const ServersPage({super.key});
@@ -35,102 +36,115 @@ class ServersPage extends StatelessWidget {
     return ProjectGuard(
       child: Padding(
         padding: EdgeInsets.all(16.r),
-        child: Row(
-          children: [
-            SizedBox(
-              width: 360.w,
-              child: Card(
-                child: Padding(
-                  padding: EdgeInsets.all(12.r),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final leftWidth = masterDetailLeftWidth(
+              constraints,
+              min: 320,
+              max: 520,
+              ratio: 0.36,
+            );
+            return Row(
+              children: [
+                SizedBox(
+                  width: leftWidth,
+                  child: Card(
+                    child: Padding(
+                      padding: EdgeInsets.all(12.r),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Expanded(child: Text('服务器').p()),
-                          PrimaryButton(
-                            density: ButtonDensity.icon,
-                            onPressed: () async {
-                              final created = await showDialog<Server>(
-                                context: context,
-                                builder: (context) => _ServerEditDialog(
-                                  initial: null,
-                                  defaultType: controller.filterType.value,
-                                ),
-                              );
-                              if (created == null) return;
-                              try {
-                                await controller.upsert(created);
-                              } on AppException catch (e) {
-                                if (context.mounted) {
-                                  await showAppErrorDialog(context, e);
-                                }
+                          Row(
+                            children: [
+                              Expanded(child: Text('服务器').p()),
+                              PrimaryButton(
+                                density: ButtonDensity.icon,
+                                onPressed: () async {
+                                  final created = await showDialog<Server>(
+                                    context: context,
+                                    builder: (context) => _ServerEditDialog(
+                                      initial: null,
+                                      defaultType: controller.filterType.value,
+                                    ),
+                                  );
+                                  if (created == null) return;
+                                  try {
+                                    await controller.upsert(created);
+                                  } on AppException catch (e) {
+                                    if (context.mounted) {
+                                      await showAppErrorDialog(context, e);
+                                    }
+                                  }
+                                },
+                                child: const Icon(Icons.add),
+                              ),
+                            ],
+                          ),
+                          SizedBox(height: 12.h),
+                          Wrap(
+                            spacing: 8.w,
+                            children: [
+                              toggle(ServerType.control, '控制端'),
+                              toggle(ServerType.managed, '被控端'),
+                            ],
+                          ),
+                          SizedBox(height: 12.h),
+                          Expanded(
+                            child: Obx(() {
+                              final items = controller.filtered.toList();
+                              if (items.isEmpty) {
+                                return const Center(child: Text('暂无服务器'));
                               }
-                            },
-                            child: const Icon(Icons.add),
+                              return m.ListView.builder(
+                                itemCount: items.length,
+                                itemBuilder: (context, i) {
+                                  final s = items[i];
+                                  final selected =
+                                      controller.selectedId.value == s.id;
+                                  final lastTest = _formatLastTest(s);
+                                  return m.ListTile(
+                                    selected: selected,
+                                    title: Text(s.name),
+                                    subtitle: Column(
+                                      crossAxisAlignment:
+                                          m.CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          '${s.ip}:${s.port}  ·  ${s.username}',
+                                        ).muted(),
+                                        Text(lastTest).muted(),
+                                      ],
+                                    ),
+                                    trailing: s.enabled
+                                        ? null
+                                        : const Icon(Icons.block),
+                                    onTap: () =>
+                                        controller.selectedId.value = s.id,
+                                  );
+                                },
+                              );
+                            }),
                           ),
                         ],
                       ),
-                      SizedBox(height: 12.h),
-                      Wrap(
-                        spacing: 8.w,
-                        children: [
-                          toggle(ServerType.control, '控制端'),
-                          toggle(ServerType.managed, '被控端'),
-                        ],
-                      ),
-                      SizedBox(height: 12.h),
-                      Expanded(
-                        child: Obx(() {
-                          final items = controller.filtered.toList();
-                          if (items.isEmpty) {
-                            return const Center(child: Text('暂无服务器'));
-                          }
-                          return m.ListView.builder(
-                            itemCount: items.length,
-                            itemBuilder: (context, i) {
-                              final s = items[i];
-                              final selected =
-                                  controller.selectedId.value == s.id;
-                              final lastTest = _formatLastTest(s);
-                              return m.ListTile(
-                                selected: selected,
-                                title: Text(s.name),
-                                subtitle: Column(
-                                  crossAxisAlignment:
-                                      m.CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      '${s.ip}:${s.port}  ·  ${s.username}',
-                                    ).muted(),
-                                    Text(lastTest).muted(),
-                                  ],
-                                ),
-                                trailing: s.enabled
-                                    ? null
-                                    : const Icon(Icons.block),
-                                onTap: () => controller.selectedId.value = s.id,
-                              );
-                            },
-                          );
-                        }),
-                      ),
-                    ],
+                    ),
                   ),
                 ),
-              ),
-            ),
-            SizedBox(width: 16.w),
-            Expanded(
-              child: Obx(() {
-                final s = controller.selected;
-                if (s == null) {
-                  return const Card(child: Center(child: Text('选择一个服务器查看详情')));
-                }
-                return _ServerDetail(server: s);
-              }),
-            ),
-          ],
+                SizedBox(width: 16.w),
+                Expanded(
+                  child: Obx(() {
+                    final s = controller.selected;
+                    if (s == null) {
+                      return const Card(
+                        child: Center(child: Text('选择一个服务器查看详情')),
+                      );
+                    }
+                    return _ServerDetail(server: s);
+                  }),
+                ),
+              ],
+            );
+          },
         ),
       ),
     );
@@ -382,6 +396,7 @@ class _ServerEditDialogState extends State<_ServerEditDialog> {
   final m.TextEditingController _pwd = m.TextEditingController();
 
   String _type = ServerType.control;
+  String _controlOsHint = ControlOsHint.auto;
   bool _enabled = true;
   bool _obscurePwd = true;
 
@@ -391,6 +406,7 @@ class _ServerEditDialogState extends State<_ServerEditDialog> {
     final i = widget.initial;
     _type = i?.type ?? widget.defaultType;
     _enabled = i?.enabled ?? true;
+    _controlOsHint = i?.controlOsHint ?? ControlOsHint.auto;
     if (i != null) {
       _name.text = i.name;
       _ip.text = i.ip;
@@ -438,6 +454,36 @@ class _ServerEditDialogState extends State<_ServerEditDialog> {
               ],
               onChanged: (v) => setState(() => _type = v ?? _type),
             ),
+            if (_type == ServerType.control) ...[
+              SizedBox(height: 12.h),
+              m.DropdownButtonFormField<String>(
+                key: ValueKey('os_hint_$_controlOsHint'),
+                initialValue: _controlOsHint,
+                decoration: const m.InputDecoration(
+                  labelText: '控制端系统类型（用于自动安装判定）',
+                ),
+                items: const [
+                  m.DropdownMenuItem(
+                    value: ControlOsHint.auto,
+                    child: Text('自动识别（推荐）'),
+                  ),
+                  m.DropdownMenuItem(
+                    value: ControlOsHint.ubuntu24Plus,
+                    child: Text('Ubuntu 24+'),
+                  ),
+                  m.DropdownMenuItem(
+                    value: ControlOsHint.kylinV10Sp3,
+                    child: Text('银河麒麟 V10 SP3'),
+                  ),
+                  m.DropdownMenuItem(
+                    value: ControlOsHint.other,
+                    child: Text('其他/不确定（执行时可强制安装）'),
+                  ),
+                ],
+                onChanged: (v) =>
+                    setState(() => _controlOsHint = v ?? _controlOsHint),
+              ),
+            ],
             SizedBox(height: 12.h),
             m.TextField(
               controller: _name,
@@ -543,6 +589,9 @@ class _ServerEditDialogState extends State<_ServerEditDialog> {
                         username: username,
                         password: _pwd.text,
                         enabled: _enabled,
+                        controlOsHint: _type == ServerType.control
+                            ? _controlOsHint
+                            : ControlOsHint.auto,
                       );
 
                   Navigator.of(context).pop(
@@ -554,6 +603,9 @@ class _ServerEditDialogState extends State<_ServerEditDialog> {
                       username: username,
                       password: _pwd.text,
                       enabled: _enabled,
+                      controlOsHint: _type == ServerType.control
+                          ? _controlOsHint
+                          : ControlOsHint.auto,
                     ),
                   );
                 },
