@@ -511,8 +511,21 @@ class RunEngine {
     }
     final encoder = ZipFileEncoder();
     encoder.create(zip.path);
-    encoder.addDirectory(stage, includeDirName: false);
-    encoder.close();
+    await encoder.addDirectory(stage, includeDirName: false);
+    await encoder.close();
+    final zipSize = await zip.length();
+    // An empty zip is exactly 22 bytes (end of central directory record only).
+    if (zipSize <= 22) {
+      final stageEntries =
+          stage.listSync(recursive: true, followLinks: true).length;
+      throw AppException(
+        code: AppErrorCode.storageIo,
+        title: '生成 bundle.zip 失败',
+        message:
+            'bundle.zip 为空或异常：size=$zipSize stage_entries=$stageEntries stage=${stage.path}',
+        suggestion: '检查本机磁盘空间/权限，并重试执行。',
+      );
+    }
 
     return _PreparedBundle(
       bundleZip: zip,
