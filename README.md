@@ -2,6 +2,13 @@
 
 简易 Ansible 部署升级桌面工具（v1）原型：Flutter Desktop（Windows/Linux）+ 本地 JSON 存储 + SSH 下发到控制端执行。
 
+## 大文件（必读）
+仓库内 `assets/offline/` 含离线安装包（体积较大），使用 **Git LFS** 存储。
+
+首次拉取/更新请执行：
+- `git lfs install`
+- `git lfs pull`
+
 ## 开发环境
 - Flutter stable（当前工程使用 `shadcn_flutter` 作为 UI 组件库）
 

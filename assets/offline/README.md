@@ -20,3 +20,10 @@
 说明：
 - 该脚本会按 `assets/offline/manifest.json` 的版本下载/生成离线包（需要联网）。
 - 离线包体积较大，建议配合 Git LFS；否则仓库会快速膨胀。
+
+## 拉取注意（Git LFS）
+如果未安装 Git LFS，拉到的 `*.tar.gz` 可能只是 “pointer 文件”（几十/几百字节），无法用于离线安装。
+
+首次拉取/更新请执行：
+- `git lfs install`
+- `git lfs pull`
