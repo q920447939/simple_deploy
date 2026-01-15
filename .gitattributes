@@ -1,0 +1,2 @@
+assets/offline/**/*.tar.gz filter=lfs diff=lfs merge=lfs -text
+.tmp_offline/*.tar.gz filter=lfs diff=lfs merge=lfs -text
