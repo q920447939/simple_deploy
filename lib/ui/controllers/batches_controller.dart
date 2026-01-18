@@ -7,6 +7,7 @@ import 'package:get/get.dart';
 
 import '../../model/batch.dart';
 import '../../model/run.dart';
+import '../../model/run_inputs.dart';
 import '../../model/server.dart';
 import '../../model/task.dart';
 import '../../services/app_services.dart';
@@ -379,8 +380,8 @@ class BatchesController extends GetxController {
     }
   }
 
-  Future<void> startRunWithFiles(
-    Map<String, Map<String, List<String>>> fileInputs, {
+  Future<void> startRunWithInputs(
+    RunInputs inputs, {
     bool allowUnsupportedControlOsAutoInstall = false,
   }) async {
     final pid = projectId;
@@ -395,7 +396,7 @@ class BatchesController extends GetxController {
       );
     }
 
-    await _writeLastFileInputs(batch.id, fileInputs);
+    await _writeLastInputs(batch.id, inputs);
 
     // Fire-and-forget: 让 UI 可以立即轮询展示进度/日志。
     // 错误会落盘到 runs/<run_id>.json，并写入 app_logs。
@@ -404,7 +405,7 @@ class BatchesController extends GetxController {
         .startBatchRun(
           projectId: pid,
           batch: batch,
-          fileInputs: fileInputs,
+          inputs: inputs,
           allowUnsupportedControlOsAutoInstall:
               allowUnsupportedControlOsAutoInstall,
         )
@@ -424,55 +425,45 @@ class BatchesController extends GetxController {
     await loadRuns();
   }
 
-  Future<Map<String, Map<String, List<String>>>?> readLastFileInputs(
-    String batchId,
-  ) async {
+  Future<RunInputs?> readLastInputs(String batchId) async {
     final pid = projectId;
     if (pid == null) return null;
     final pp = AppServices.I.projectPaths(pid);
-    final raw =
-        await AtomicFile.readJsonOrNull(pp.batchLastFileInputsFile(batchId)) ??
-        await AtomicFile.readJsonOrNull(
-          pp.batchLastFileInputsLegacyFile(batchId),
-        );
-    if (raw is! Map) return null;
-
-    final out = <String, Map<String, List<String>>>{};
-    for (final e in raw.entries) {
-      if (e.key is! String) continue;
-      if (e.value is! Map) continue;
-      final taskId = e.key as String;
-      final slotMap = <String, List<String>>{};
-      for (final se in (e.value as Map).entries) {
-        if (se.key is! String) continue;
-        final slot = se.key as String;
-        final v = se.value;
-        if (v is List) {
-          final paths = <String>[
-            for (final p in v)
-              if (p is String && p.trim().isNotEmpty) p.trim(),
-          ];
-          slotMap[slot] = paths;
-        }
-      }
-      if (slotMap.isNotEmpty) {
-        out[taskId] = slotMap;
+    final raw = await AtomicFile.readJsonOrNull(pp.batchLastInputsFile(batchId));
+    if (raw is Map) {
+      final parsed = RunInputs.fromJson(raw.cast<String, Object?>());
+      if (parsed.fileInputs.isNotEmpty || parsed.vars.isNotEmpty) {
+        return parsed;
       }
     }
-    return out.isEmpty ? null : out;
+
+    // Legacy: only file inputs.
+    final legacy =
+        await AtomicFile.readJsonOrNull(pp.batchLastFileInputsFile(batchId)) ??
+            await AtomicFile.readJsonOrNull(
+              pp.batchLastFileInputsLegacyFile(batchId),
+            );
+    if (legacy is! Map) return null;
+    final parsed = RunInputs.fromJson(
+      {'file_inputs': legacy, 'vars': const {}},
+    );
+    return parsed.fileInputs.isEmpty ? null : parsed;
   }
 
-  Future<void> _writeLastFileInputs(
-    String batchId,
-    Map<String, Map<String, List<String>>> fileInputs,
-  ) async {
+  Future<void> _writeLastInputs(String batchId, RunInputs inputs) async {
     final pid = projectId;
     if (pid == null) return;
     final pp = AppServices.I.projectPaths(pid);
-    await AtomicFile.writeJson(pp.batchLastFileInputsFile(batchId), fileInputs);
-    final legacy = pp.batchLastFileInputsLegacyFile(batchId);
-    if (await legacy.exists()) {
-      await legacy.delete();
+    await AtomicFile.writeJson(pp.batchLastInputsFile(batchId), inputs.toJson());
+
+    // Clean up legacy files.
+    final legacyNoExt = pp.batchLastFileInputsFile(batchId);
+    if (await legacyNoExt.exists()) {
+      await legacyNoExt.delete();
+    }
+    final legacyJson = pp.batchLastFileInputsLegacyFile(batchId);
+    if (await legacyJson.exists()) {
+      await legacyJson.delete();
     }
   }
 

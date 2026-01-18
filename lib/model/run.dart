@@ -58,6 +58,7 @@ class TaskRunResult {
   final String status; // waiting|running|success|failed
   final int? exitCode;
   final Map<String, List<String>>? fileInputs; // slot -> relative paths
+  final Map<String, String>? vars; // var_name -> value (effective)
   final String? error;
 
   const TaskRunResult({
@@ -65,6 +66,7 @@ class TaskRunResult {
     required this.status,
     required this.exitCode,
     required this.fileInputs,
+    required this.vars,
     required this.error,
   });
 
@@ -72,6 +74,7 @@ class TaskRunResult {
     String? status,
     int? exitCode,
     Map<String, List<String>>? fileInputs,
+    Map<String, String>? vars,
     String? error,
   }) {
     return TaskRunResult(
@@ -79,6 +82,7 @@ class TaskRunResult {
       status: status ?? this.status,
       exitCode: exitCode ?? this.exitCode,
       fileInputs: fileInputs ?? this.fileInputs,
+      vars: vars ?? this.vars,
       error: error ?? this.error,
     );
   }
@@ -92,11 +96,24 @@ class TaskRunResult {
         return MapEntry(k as String, list);
       });
     }
+    Map<String, String>? vars;
+    final rawVars = json['vars'];
+    if (rawVars is Map) {
+      vars = <String, String>{};
+      for (final e in rawVars.entries) {
+        if (e.key is! String) continue;
+        final k = e.key as String;
+        final v = e.value;
+        if (v == null) continue;
+        vars[k] = v.toString();
+      }
+    }
     return TaskRunResult(
       taskId: json['task_id'] as String,
       status: (json['status'] as String?) ?? TaskExecStatus.waiting,
       exitCode: (json['exit_code'] as num?)?.toInt(),
       fileInputs: fileInputs,
+      vars: vars,
       error: json['error'] as String?,
     );
   }
@@ -107,6 +124,7 @@ class TaskRunResult {
       'status': status,
       'exit_code': exitCode,
       'file_inputs': fileInputs,
+      'vars': vars,
       'error': error,
     };
   }

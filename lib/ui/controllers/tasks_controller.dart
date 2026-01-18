@@ -18,6 +18,15 @@ class TasksController extends GetxController {
   String? get projectId => projects.selectedId.value;
 
   static final RegExp _slotNameRe = RegExp(r'^[A-Za-z0-9_]+$');
+  static final RegExp _varNameRe = RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$');
+  static const Set<String> _reservedVarNames = {
+    // Reserved by run_engine vars json.
+    'run_id',
+    'run_dir',
+    'files',
+    'task',
+    'task_files',
+  };
 
   @override
   void onInit() {
@@ -64,6 +73,16 @@ class TasksController extends GetxController {
       );
     }
 
+    if (task.type != TaskType.ansiblePlaybook &&
+        task.type != TaskType.localScript) {
+      throw const AppException(
+        code: AppErrorCode.validation,
+        title: '任务类型不合法',
+        message: '未知的任务类型(type)。',
+        suggestion: '请重新创建任务。',
+      );
+    }
+
     final normalizedSlots = task.fileSlots
         .map(
           (s) => FileSlot(
@@ -75,39 +94,117 @@ class TasksController extends GetxController {
         .toList(growable: false);
 
     final names = <String>{};
-    for (final s in normalizedSlots) {
-      if (s.name.isEmpty || !_slotNameRe.hasMatch(s.name)) {
-        throw const AppException(
-          code: AppErrorCode.validation,
-          title: '槽位名不合法',
-          message: '槽位名仅支持字母/数字/下划线。',
-          suggestion: '命名规范：`[a-zA-Z0-9_]+`。',
-        );
-      }
-      if (!names.add(s.name)) {
-        throw const AppException(
-          code: AppErrorCode.validation,
-          title: '槽位名重复',
-          message: '同一个任务内不允许出现重复的槽位名。',
-          suggestion: '修改槽位名后重试。',
-        );
+    if (task.type == TaskType.ansiblePlaybook) {
+      for (final s in normalizedSlots) {
+        if (s.name.isEmpty || !_slotNameRe.hasMatch(s.name)) {
+          throw const AppException(
+            code: AppErrorCode.validation,
+            title: '槽位名不合法',
+            message: '槽位名仅支持字母/数字/下划线。',
+            suggestion: '命名规范：`[a-zA-Z0-9_]+`。',
+          );
+        }
+        if (!names.add(s.name)) {
+          throw const AppException(
+            code: AppErrorCode.validation,
+            title: '槽位名重复',
+            message: '同一个任务内不允许出现重复的槽位名。',
+            suggestion: '修改槽位名后重试。',
+          );
+        }
       }
     }
 
-    final metas = await AppServices.I.playbooksStore(pid).listMeta();
-    if (metas.every((p) => p.id != task.playbookId)) {
-      throw const AppException(
-        code: AppErrorCode.validation,
-        title: 'Playbook 不存在',
-        message: '所选 Playbook 不存在或已被删除。',
-        suggestion: '重新选择 Playbook，或先创建 Playbook。',
+    final normalizedVars = <TaskVariable>[];
+    final varNames = <String>{};
+    for (final v in task.variables) {
+      final name = v.name.trim();
+      if (name.isEmpty || !_varNameRe.hasMatch(name)) {
+        throw const AppException(
+          code: AppErrorCode.validation,
+          title: '变量名不合法',
+          message: '变量名仅支持字母/数字/下划线，且必须以字母/下划线开头。',
+          suggestion: '命名规范：`[A-Za-z_][A-Za-z0-9_]*`。',
+        );
+      }
+      if (_reservedVarNames.contains(name)) {
+        throw AppException(
+          code: AppErrorCode.validation,
+          title: '变量名被占用',
+          message: '变量名 `$name` 为系统保留字段，不能使用。',
+          suggestion: '请修改变量名后重试。',
+        );
+      }
+      if (!varNames.add(name)) {
+        throw const AppException(
+          code: AppErrorCode.validation,
+          title: '变量名重复',
+          message: '同一个任务内不允许出现重复的变量名。',
+          suggestion: '修改变量名后重试。',
+        );
+      }
+      normalizedVars.add(
+        TaskVariable(
+          name: name,
+          description: v.description.trim(),
+          defaultValue: v.defaultValue,
+          required: v.required,
+        ),
       );
+    }
+
+    String? playbookId = task.playbookId;
+    TaskScript? script = task.script;
+    List<FileSlot> slots = normalizedSlots;
+    if (task.type == TaskType.ansiblePlaybook) {
+      if (playbookId == null || playbookId.trim().isEmpty) {
+        throw const AppException(
+          code: AppErrorCode.validation,
+          title: '未绑定 Playbook',
+          message: 'Ansible Playbook 任务必须选择一个 Playbook。',
+          suggestion: '在任务编辑中绑定 Playbook 后重试。',
+        );
+      }
+      final metas = await AppServices.I.playbooksStore(pid).listMeta();
+      if (metas.every((p) => p.id != playbookId)) {
+        throw const AppException(
+          code: AppErrorCode.validation,
+          title: 'Playbook 不存在',
+          message: '所选 Playbook 不存在或已被删除。',
+          suggestion: '重新选择 Playbook，或先创建 Playbook。',
+        );
+      }
+    } else {
+      // local_script
+      playbookId = null;
+      slots = const <FileSlot>[];
+      if (script == null) {
+        throw const AppException(
+          code: AppErrorCode.validation,
+          title: '脚本不能为空',
+          message: '脚本任务必须填写脚本内容。',
+          suggestion: '填写 bash/sh 脚本后重试。',
+        );
+      }
+      if (script.content.trim().isEmpty) {
+        throw const AppException(
+          code: AppErrorCode.validation,
+          title: '脚本不能为空',
+          message: '脚本任务必须填写脚本内容。',
+          suggestion: '填写 bash/sh 脚本后重试。',
+        );
+      }
+      final shell = script.shell.trim().isEmpty ? 'bash' : script.shell.trim();
+      script = script.copyWith(shell: shell);
     }
 
     return task.copyWith(
       name: trimmedName,
       description: task.description.trim(),
-      fileSlots: normalizedSlots,
+      playbookId: playbookId,
+      script: script,
+      fileSlots: slots,
+      variables: normalizedVars,
     );
   }
 

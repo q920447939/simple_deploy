@@ -8,6 +8,7 @@ import 'package:uuid/uuid.dart';
 import '../../model/batch.dart';
 import '../../model/playbook_meta.dart';
 import '../../model/run.dart';
+import '../../model/run_inputs.dart';
 import '../../model/server.dart';
 import '../../model/task.dart';
 import '../../services/core/app_error.dart';
@@ -39,7 +40,7 @@ class RunEngine {
   Future<void> startBatchRun({
     required String projectId,
     required Batch batch,
-    required Map<String, Map<String, List<String>>> fileInputs,
+    required RunInputs inputs,
     bool allowUnsupportedControlOsAutoInstall = false,
   }) async {
     final pp = ProjectPaths(projectsRoot: projectsRoot, projectId: projectId);
@@ -116,6 +117,11 @@ class RunEngine {
       data: {'project_id': projectId, 'batch_id': batch.id, 'run_id': runId},
     );
 
+    final effectiveVarsByTaskId = _buildEffectiveVarsByTaskId(
+      orderedTasks,
+      inputs.vars,
+    );
+
     Run run = Run(
       id: runId,
       projectId: projectId,
@@ -131,6 +137,7 @@ class RunEngine {
             status: TaskExecStatus.waiting,
             exitCode: null,
             fileInputs: null,
+            vars: effectiveVarsByTaskId[t.id],
             error: null,
           ),
       ],
@@ -149,11 +156,13 @@ class RunEngine {
       await batchesStore.upsert(updatedBatch);
       await runsStore.write(run);
 
+      _assertTaskOrderOrThrow(orderedTasks);
+
       final preparedInputs = await _persistFileInputsToArtifacts(
         pp: pp,
         runId: runId,
         orderedTasks: orderedTasks,
-        fileInputs: fileInputs,
+        fileInputs: inputs.fileInputs,
       );
 
       run = run.copyWith(
@@ -166,7 +175,7 @@ class RunEngine {
       );
       await runsStore.write(run);
 
-      final prepared = await _prepareBundle(
+      final stagePrepared = await _prepareStage(
         pp: pp,
         runId: runId,
         tasks: orderedTasks,
@@ -174,7 +183,40 @@ class RunEngine {
         remoteFilesMapping: preparedInputs.remoteFilesMapping,
         managedServers: managedServers,
         projectId: projectId,
+        effectiveVarsByTaskId: effectiveVarsByTaskId,
       );
+
+      // Run local_script tasks first (pre-bundle).
+      final zipPrepared = await _runLocalScriptsAndZip(
+        pp: pp,
+        runId: runId,
+        tasks: orderedTasks,
+        stage: stagePrepared.stage,
+        remoteRunDir: stagePrepared.remoteRunDir,
+        remoteFilesMapping: preparedInputs.remoteFilesMapping,
+        effectiveVarsByTaskId: effectiveVarsByTaskId,
+        run: run,
+        runsStore: runsStore,
+      );
+      run = zipPrepared.run;
+      if (zipPrepared.aborted) {
+        return;
+      }
+
+      final hasAnyRemote = orderedTasks.any((t) => t.isAnsiblePlaybook);
+      if (!hasAnyRemote) {
+        run = run.copyWith(
+          status: RunStatus.ended,
+          result: RunResult.success,
+          endedAt: DateTime.now(),
+          bizStatus: const BizStatus(
+            status: BizStatusValue.unknown,
+            message: '',
+          ),
+        );
+        await runsStore.write(run);
+        return;
+      }
 
       final endpoint = SshEndpoint(
         host: controlServer.ip,
@@ -206,28 +248,31 @@ class RunEngine {
 
         await _requireRemoteOk(
           conn,
-          'mkdir -p ${_dq(prepared.remoteRunDir)}',
+          'mkdir -p ${_dq(zipPrepared.remoteRunDir)}',
           title: '创建控制端运行目录失败',
         );
         await _uploadFileWithVerify(
           conn,
-          local: prepared.bundleZip,
-          remote: '${prepared.remoteRunDir}/bundle.zip',
+          local: zipPrepared.bundleZip!,
+          remote: '${zipPrepared.remoteRunDir}/bundle.zip',
           title: '上传 bundle.zip 失败',
         );
         await _requireRemoteOk(
           conn,
-          'bash -lc "cd \\"${_bashEscape(prepared.remoteRunDir)}\\" && if command -v unzip >/dev/null 2>&1; then unzip -o bundle.zip >/dev/null; else \\"${_bashEscape(runtime.pythonBin)}\\" -c \'import zipfile; zipfile.ZipFile("bundle.zip").extractall(".")\'; fi"',
+          'bash -lc "cd \\"${_bashEscape(zipPrepared.remoteRunDir)}\\" && if command -v unzip >/dev/null 2>&1; then unzip -o bundle.zip >/dev/null; else \\"${_bashEscape(runtime.pythonBin)}\\" -c \'import zipfile; zipfile.ZipFile("bundle.zip").extractall(".")\'; fi"',
           title: '控制端解包失败',
         );
         await _requireRemoteOk(
           conn,
-          'cd ${_dq(prepared.remoteRunDir)} && mkdir -p logs results',
+          'cd ${_dq(zipPrepared.remoteRunDir)} && mkdir -p logs results',
           title: '控制端初始化目录失败',
         );
 
         for (var i = 0; i < orderedTasks.length; i++) {
           final task = orderedTasks[i];
+          if (!task.isAnsiblePlaybook) {
+            continue;
+          }
           final playbook = _firstWhereOrNull(
             allPlaybooks,
             (p) => p.id == task.playbookId,
@@ -255,7 +300,7 @@ class RunEngine {
           try {
             final remotePlaybookPath = p.posix.normalize(playbook.relativePath);
             final remoteCmd = _taskCommand(
-              runDir: prepared.remoteRunDir,
+              runDir: zipPrepared.remoteRunDir,
               playbookPath: remotePlaybookPath,
               taskIndex: i,
               ansiblePlaybook: runtime.ansiblePlaybook,
@@ -325,7 +370,7 @@ class RunEngine {
 
         BizStatus? biz;
         final bizText = await conn.readFileOrNull(
-          '${prepared.remoteRunDir}/results/biz_status.json',
+          '${zipPrepared.remoteRunDir}/results/biz_status.json',
         );
         if (bizText != null && bizText.trim().isNotEmpty) {
           try {
@@ -421,7 +466,69 @@ class RunEngine {
     return run.copyWith(taskResults: list);
   }
 
-  Future<_PreparedBundle> _prepareBundle({
+  void _assertTaskOrderOrThrow(List<Task> orderedTasks) {
+    // local_script tasks are designed as "pre-steps": they can modify bundle
+    // contents before upload. To keep semantics clear, disallow local_script
+    // appearing after any ansible_playbook task.
+    var seenRemote = false;
+    for (final t in orderedTasks) {
+      if (t.isAnsiblePlaybook) seenRemote = true;
+      if (seenRemote && t.isLocalScript) {
+        throw const AppException(
+          code: AppErrorCode.validation,
+          title: '任务顺序不支持',
+          message: '脚本任务只能放在 Ansible Playbook 任务之前（作为前置步骤）。',
+          suggestion: '请在批次中调整任务顺序：把脚本任务拖到最前面。',
+        );
+      }
+    }
+  }
+
+  Map<String, Map<String, String>> _buildEffectiveVarsByTaskId(
+    List<Task> tasks,
+    Map<String, Map<String, String>> inputVars,
+  ) {
+    final out = <String, Map<String, String>>{};
+    for (final t in tasks) {
+      final defs = t.variables;
+      if (defs.isEmpty) continue;
+      final map = <String, String>{
+        for (final d in defs) d.name: d.defaultValue,
+      };
+      final provided = inputVars[t.id] ?? const <String, String>{};
+
+      // Disallow unknown vars to catch copy/paste mistakes.
+      final allowed = defs.map((d) => d.name).toSet();
+      for (final k in provided.keys) {
+        if (!allowed.contains(k)) {
+          throw AppException(
+            code: AppErrorCode.validation,
+            title: '变量不合法',
+            message: '任务 ${t.name} 提供了未知变量：$k',
+            suggestion: '请重新打开“选择输入”对话框并重新填写变量。',
+          );
+        }
+      }
+      map.addAll(provided);
+
+      for (final d in defs) {
+        if (!d.required) continue;
+        final v = (map[d.name] ?? '').trim();
+        if (v.isEmpty) {
+          throw AppException(
+            code: AppErrorCode.validation,
+            title: '缺少必填变量',
+            message: '任务 ${t.name} 的变量 ${d.name} 为必填，但未填写。',
+            suggestion: '返回重新填写变量后再执行。',
+          );
+        }
+      }
+      out[t.id] = map;
+    }
+    return out;
+  }
+
+  Future<_PreparedStage> _prepareStage({
     required ProjectPaths pp,
     required String runId,
     required List<Task> tasks,
@@ -429,6 +536,7 @@ class RunEngine {
     required Map<String, Map<String, List<String>>> remoteFilesMapping,
     required List<Server> managedServers,
     required String projectId,
+    required Map<String, Map<String, String>> effectiveVarsByTaskId,
   }) async {
     final runArtifacts = pp.runArtifactsFor(runId);
     await runArtifacts.create(recursive: true);
@@ -473,18 +581,21 @@ class RunEngine {
       }
     }
 
-    // Copy needed playbooks into stage.
-    for (final task in tasks) {
-      final meta = _firstWhereOrNull(playbooks, (p) => p.id == task.playbookId);
-      if (meta == null) {
-        continue;
-      }
-      final src = File(p.join(pp.projectDir.path, meta.relativePath));
+    // Copy playbooks directory to stage (so imported task files under
+    // playbooks/** are also available on the control node).
+    if (await pp.playbooksDir.exists()) {
+      final dstDir = Directory(p.join(stage.path, 'playbooks'));
+      await _copyDirectory(pp.playbooksDir, dstDir);
+    }
+    // Ensure referenced playbook entry files exist in bundle.
+    for (final task in tasks.where((t) => t.isAnsiblePlaybook)) {
+      final pbId = task.playbookId;
+      if (pbId == null) continue;
+      final meta = _firstWhereOrNull(playbooks, (p) => p.id == pbId);
+      if (meta == null) continue;
       final dst = File(p.join(stage.path, meta.relativePath));
-      await dst.parent.create(recursive: true);
-      if (await src.exists()) {
-        await src.copy(dst.path);
-      } else {
+      if (!await dst.exists()) {
+        await dst.parent.create(recursive: true);
         await dst.writeAsString('---\n# missing playbook file\n', flush: true);
       }
     }
@@ -495,16 +606,50 @@ class RunEngine {
     ).writeAsString('$inventory\n', flush: true);
 
     final remoteRunDir = '/tmp/simple_deploy/$projectId/$runId';
-    final vars = <String, Object?>{
+    final common = <String, Object?>{
       'run_id': runId,
       'run_dir': remoteRunDir,
       'files': remoteFilesMapping,
     };
     await File(p.join(stage.path, 'vars.json')).writeAsString(
-      '${const JsonEncoder.withIndent('  ').convert(vars)}\n',
+      '${const JsonEncoder.withIndent('  ').convert(common)}\n',
       flush: true,
     );
 
+    // Per-task vars: vars_task_<index>.json
+    for (var i = 0; i < tasks.length; i++) {
+      final t = tasks[i];
+      final vars = <String, Object?>{
+        ...common,
+        'task': <String, Object?>{
+          'id': t.id,
+          'index': i,
+          'name': t.name,
+          'type': t.type,
+        },
+        'task_files': remoteFilesMapping[t.id] ?? const <String, List<String>>{},
+      };
+      final eff = effectiveVarsByTaskId[t.id];
+      if (eff != null) {
+        for (final e in eff.entries) {
+          vars[e.key] = e.value;
+        }
+      }
+      await File(p.join(stage.path, 'vars_task_$i.json')).writeAsString(
+        '${const JsonEncoder.withIndent('  ').convert(vars)}\n',
+        flush: true,
+      );
+    }
+
+    return _PreparedStage(stage: stage, remoteRunDir: remoteRunDir);
+  }
+
+  Future<_PreparedBundle> _zipStage({
+    required Directory stage,
+    required Directory runArtifacts,
+    required Map<String, Map<String, List<String>>> remoteFilesMapping,
+    required String remoteRunDir,
+  }) async {
     final zip = File(p.join(runArtifacts.path, 'bundle.zip'));
     if (await zip.exists()) {
       await zip.delete();
@@ -526,12 +671,233 @@ class RunEngine {
         suggestion: '检查本机磁盘空间/权限，并重试执行。',
       );
     }
-
     return _PreparedBundle(
       bundleZip: zip,
       remoteRunDir: remoteRunDir,
       filesMapping: remoteFilesMapping,
     );
+  }
+
+  Future<_PreparedBundleAndRun> _runLocalScriptsAndZip({
+    required ProjectPaths pp,
+    required String runId,
+    required List<Task> tasks,
+    required Directory stage,
+    required String remoteRunDir,
+    required Map<String, Map<String, List<String>>> remoteFilesMapping,
+    required Map<String, Map<String, String>> effectiveVarsByTaskId,
+    required Run run,
+    required RunsStore runsStore,
+  }) async {
+    final runArtifacts = pp.runArtifactsFor(runId);
+    await runArtifacts.create(recursive: true);
+
+    // Execute local_script tasks (pre steps).
+    for (var i = 0; i < tasks.length; i++) {
+      final task = tasks[i];
+      if (!task.isLocalScript) continue;
+
+      run = _setTaskResult(
+        run,
+        taskIndex: i,
+        result: run.taskResults[i].copyWith(status: TaskExecStatus.running),
+      );
+      await runsStore.write(run);
+
+      final localLog = pp.taskLogFile(runId, i);
+      await localLog.parent.create(recursive: true);
+      final sink = localLog.openWrite(mode: FileMode.writeOnlyAppend);
+      try {
+        final script = task.script;
+        if (script == null) {
+          sink.writeln('[local_script] missing script');
+          run = _setTaskResult(
+            run,
+            taskIndex: i,
+            result: run.taskResults[i].copyWith(
+              status: TaskExecStatus.failed,
+              exitCode: 127,
+              error: 'missing script',
+            ),
+          );
+          run = run.copyWith(
+            status: RunStatus.ended,
+            result: RunResult.failed,
+            endedAt: DateTime.now(),
+            errorSummary: '脚本任务失败：${task.name} (missing script)',
+          );
+          await runsStore.write(run);
+          return _PreparedBundleAndRun.aborted(
+            run: run,
+            remoteRunDir: remoteRunDir,
+          );
+        }
+
+        final shell = script.shell.trim().isEmpty ? 'bash' : script.shell.trim();
+        if (shell != 'bash' && shell != 'sh') {
+          sink.writeln('[local_script] unsupported shell=$shell');
+          run = _setTaskResult(
+            run,
+            taskIndex: i,
+            result: run.taskResults[i].copyWith(
+              status: TaskExecStatus.failed,
+              exitCode: 127,
+              error: 'unsupported shell=$shell',
+            ),
+          );
+          run = run.copyWith(
+            status: RunStatus.ended,
+            result: RunResult.failed,
+            endedAt: DateTime.now(),
+            errorSummary: '脚本任务失败：${task.name} (unsupported shell)',
+          );
+          await runsStore.write(run);
+          return _PreparedBundleAndRun.aborted(
+            run: run,
+            remoteRunDir: remoteRunDir,
+          );
+        }
+
+        final scriptsDir = Directory(p.join(runArtifacts.path, 'local_scripts'));
+        await scriptsDir.create(recursive: true);
+        final scriptFile = File(p.join(scriptsDir.path, 'task_$i.$shell'));
+        await scriptFile.writeAsString(
+          script.content.endsWith('\n') ? script.content : '${script.content}\n',
+          flush: true,
+        );
+
+        sink.writeln(
+          '[local_script] shell=$shell task=${task.id.substring(0, 8)} name=${task.name}',
+        );
+        sink.writeln('[local_script] cwd=${stage.path}');
+        sink.writeln(
+          '[local_script] vars_file=${p.join(stage.path, "vars_task_$i.json")}',
+        );
+
+        final env = Map<String, String>.from(Platform.environment);
+        env['SD_RUN_ID'] = runId;
+        env['SD_PROJECT_ID'] = run.projectId;
+        env['SD_REMOTE_RUN_DIR'] = remoteRunDir;
+        env['SD_STAGE_DIR'] = stage.path;
+        env['SD_TASK_ID'] = task.id;
+        env['SD_TASK_INDEX'] = '$i';
+        env['SD_TASK_NAME'] = task.name;
+        env['SD_VARS_JSON'] = p.join(stage.path, 'vars.json');
+        env['SD_TASK_VARS_JSON'] = p.join(stage.path, 'vars_task_$i.json');
+        final eff = effectiveVarsByTaskId[task.id] ?? const <String, String>{};
+        for (final e in eff.entries) {
+          env['SD_${e.key}'] = e.value;
+          env['SD_${e.key.toUpperCase()}'] = e.value;
+        }
+
+        Process proc;
+        try {
+          proc = await Process.start(
+            shell,
+            [scriptFile.path],
+            workingDirectory: stage.path,
+            environment: env,
+            runInShell: false,
+          );
+        } on Object catch (e) {
+          sink.writeln('[local_script] start failed: $e');
+          run = _setTaskResult(
+            run,
+            taskIndex: i,
+            result: run.taskResults[i].copyWith(
+              status: TaskExecStatus.failed,
+              exitCode: 127,
+              error: 'local_script start failed',
+            ),
+          );
+          run = run.copyWith(
+            status: RunStatus.ended,
+            result: RunResult.failed,
+            endedAt: DateTime.now(),
+            errorSummary: '脚本任务失败：${task.name} (无法启动解释器)',
+          );
+          await runsStore.write(run);
+          return _PreparedBundleAndRun.aborted(
+            run: run,
+            remoteRunDir: remoteRunDir,
+          );
+        }
+        proc.stdout
+            .transform(const Utf8Decoder(allowMalformed: true))
+            .listen(sink.write);
+        proc.stderr
+            .transform(const Utf8Decoder(allowMalformed: true))
+            .listen(sink.write);
+        final exit = await proc.exitCode;
+
+        if (exit == 0) {
+          run = _setTaskResult(
+            run,
+            taskIndex: i,
+            result: run.taskResults[i].copyWith(
+              status: TaskExecStatus.success,
+              exitCode: 0,
+            ),
+          );
+          await runsStore.write(run);
+          continue;
+        } else {
+          run = _setTaskResult(
+            run,
+            taskIndex: i,
+            result: run.taskResults[i].copyWith(
+              status: TaskExecStatus.failed,
+              exitCode: exit,
+              error: 'local_script exit=$exit',
+            ),
+          );
+          run = run.copyWith(
+            status: RunStatus.ended,
+            result: RunResult.failed,
+            endedAt: DateTime.now(),
+            errorSummary: '脚本任务失败：${task.name} (exit=$exit)',
+          );
+          await runsStore.write(run);
+          return _PreparedBundleAndRun.aborted(
+            run: run,
+            remoteRunDir: remoteRunDir,
+          );
+        }
+      } finally {
+        await sink.flush();
+        await sink.close();
+      }
+    }
+
+    final bundle = await _zipStage(
+      stage: stage,
+      runArtifacts: runArtifacts,
+      remoteFilesMapping: remoteFilesMapping,
+      remoteRunDir: remoteRunDir,
+    );
+    // Keep original mapping: read from vars.json if needed later; for now we
+    // only need it for RunEngine internals, so keep the one in memory.
+    return _PreparedBundleAndRun(
+      run: run,
+      bundleZip: bundle.bundleZip,
+      remoteRunDir: bundle.remoteRunDir,
+      aborted: false,
+    );
+  }
+
+  Future<void> _copyDirectory(Directory src, Directory dst) async {
+    if (!await src.exists()) return;
+    await dst.create(recursive: true);
+    await for (final entity in src.list(recursive: true, followLinks: false)) {
+      final rel = p.relative(entity.path, from: src.path);
+      final to = p.join(dst.path, rel);
+      if (entity is Directory) {
+        await Directory(to).create(recursive: true);
+      } else if (entity is File) {
+        await File(to).parent.create(recursive: true);
+        await entity.copy(to);
+      }
+    }
   }
 
   Future<_PreparedFileInputs> _persistFileInputsToArtifacts({
@@ -685,7 +1051,8 @@ class RunEngine {
     final pb = _bashEscape(playbookPath);
     final log = _bashEscape('logs/task_$taskIndex.log');
     final ab = _bashEscape(ansiblePlaybook);
-    return 'bash -lc "cd \\"$dir\\" && set -o pipefail; ANSIBLE_HOST_KEY_CHECKING=False \\"$ab\\" -i inventory.ini \\"$pb\\" --extra-vars @vars.json 2>&1 | tee \\"$log\\"; exit \${PIPESTATUS[0]}"';
+    final vars = _bashEscape('vars_task_$taskIndex.json');
+    return 'bash -lc "cd \\"$dir\\" && set -o pipefail; ANSIBLE_HOST_KEY_CHECKING=False \\"$ab\\" -i inventory.ini \\"$pb\\" --extra-vars @$vars 2>&1 | tee \\"$log\\"; exit \${PIPESTATUS[0]}"';
   }
 
   static String _bashEscape(String s) =>
@@ -773,6 +1140,39 @@ class _PreparedFileInputs {
   final Map<String, Map<String, List<String>>> remoteFilesMapping;
 
   const _PreparedFileInputs({required this.remoteFilesMapping});
+}
+
+class _PreparedStage {
+  final Directory stage;
+  final String remoteRunDir;
+
+  const _PreparedStage({required this.stage, required this.remoteRunDir});
+}
+
+class _PreparedBundleAndRun {
+  final Run run;
+  final File? bundleZip;
+  final String remoteRunDir;
+  final bool aborted;
+
+  const _PreparedBundleAndRun({
+    required this.run,
+    required this.bundleZip,
+    required this.remoteRunDir,
+    required this.aborted,
+  });
+
+  factory _PreparedBundleAndRun.aborted({
+    required Run run,
+    required String remoteRunDir,
+  }) {
+    return _PreparedBundleAndRun(
+      run: run,
+      bundleZip: null,
+      remoteRunDir: remoteRunDir,
+      aborted: true,
+    );
+  }
 }
 
 class _PreparedBundle {

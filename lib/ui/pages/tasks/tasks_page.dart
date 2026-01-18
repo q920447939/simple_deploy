@@ -1,6 +1,9 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart' as m;
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
+import 'package:flutter/services.dart';
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
 import '../../../model/file_slot.dart';
@@ -21,6 +24,136 @@ class TasksPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final controller = Get.put(TasksController());
     final playbooks = Get.put(PlaybooksController());
+
+    Future<void> importTaskFromClipboard() async {
+      final pid = controller.projectId;
+      if (pid == null) return;
+      try {
+        final data = await Clipboard.getData('text/plain');
+        final text = (data?.text ?? '').trim();
+        if (text.isEmpty) {
+          throw const AppException(
+            code: AppErrorCode.validation,
+            title: '剪贴板为空',
+            message: '未读取到剪贴板文本。',
+            suggestion: '先在其他项目中导出任务到剪贴板，再回来导入。',
+          );
+        }
+        final raw = jsonDecode(text);
+        if (raw is! Map) {
+          throw const AppException(
+            code: AppErrorCode.validation,
+            title: '导入失败',
+            message: '剪贴板内容不是合法的 JSON 对象。',
+            suggestion: '请确认复制的是任务导出的 JSON。',
+          );
+        }
+        final format = raw['format'];
+        if (format != 'simple_deploy.task.v2') {
+          throw AppException(
+            code: AppErrorCode.validation,
+            title: '导入失败',
+            message: '不支持的导入格式：$format',
+            suggestion: '请使用同版本导出的任务 JSON。',
+          );
+        }
+        final taskRaw = raw['task'];
+        if (taskRaw is! Map) {
+          throw const AppException(
+            code: AppErrorCode.validation,
+            title: '导入失败',
+            message: '缺少 task 字段。',
+            suggestion: '请确认复制的是任务导出的 JSON。',
+          );
+        }
+
+        final imported =
+            Task.fromJson(taskRaw.cast<String, Object?>());
+
+        String? newPlaybookId;
+        if (imported.isAnsiblePlaybook) {
+          final pb = raw['playbook'];
+          if (pb is! Map) {
+            throw const AppException(
+              code: AppErrorCode.validation,
+              title: '导入失败',
+              message: 'Playbook 任务必须包含 playbook 字段。',
+              suggestion: '请在导出时选择“包含 Playbook”。',
+            );
+          }
+          final metaRaw = pb['meta'];
+          final textRaw = pb['text'];
+          if (metaRaw is! Map || textRaw is! String) {
+            throw const AppException(
+              code: AppErrorCode.validation,
+              title: '导入失败',
+              message: 'playbook.meta 或 playbook.text 缺失/不合法。',
+              suggestion: '请重新导出后再导入。',
+            );
+          }
+          final srcMeta =
+              PlaybookMeta.fromJson(metaRaw.cast<String, Object?>());
+          final newId = AppServices.I.uuid.v4();
+          final now = DateTime.now();
+          final ext = srcMeta.relativePath.toLowerCase().endsWith('.yaml')
+              ? '.yaml'
+              : '.yml';
+          final relativePath = 'playbooks/import_${newId.substring(0, 8)}$ext';
+          final newMeta = PlaybookMeta(
+            id: newId,
+            name: '${srcMeta.name} (导入)',
+            description: srcMeta.description,
+            relativePath: relativePath,
+            updatedAt: now,
+          );
+          final store = AppServices.I.playbooksStore(pid);
+          await store.writePlaybookText(newMeta, textRaw);
+          await store.upsertMeta(newMeta);
+          newPlaybookId = newId;
+          await playbooks.load();
+        }
+
+        final newTask = Task(
+          id: AppServices.I.uuid.v4(),
+          name: imported.name,
+          description: imported.description,
+          type: imported.type,
+          playbookId: imported.isAnsiblePlaybook ? newPlaybookId : null,
+          script: imported.script,
+          fileSlots: imported.fileSlots,
+          variables: imported.variables,
+        );
+        await controller.upsert(newTask);
+        if (context.mounted) {
+          showToast(
+            context: context,
+            builder: (context, overlay) => Card(
+              child: Padding(
+                padding: EdgeInsets.all(12.r),
+                child: const Text('导入成功（已写入当前项目）'),
+              ),
+            ),
+          );
+        }
+      } on AppException catch (e) {
+        if (context.mounted) {
+          await showAppErrorDialog(context, e);
+        }
+      } on Object catch (e) {
+        if (context.mounted) {
+          await showAppErrorDialog(
+            context,
+            AppException(
+              code: AppErrorCode.unknown,
+              title: '导入失败',
+              message: e.toString(),
+              suggestion: '请检查剪贴板内容后重试。',
+              cause: e,
+            ),
+          );
+        }
+      }
+    }
 
     return ProjectGuard(
       child: Padding(
@@ -46,39 +179,33 @@ class TasksPage extends StatelessWidget {
                           Row(
                             children: [
                               Expanded(child: Text('任务').p()),
-                              Obx(() {
-                                final canCreate =
-                                    playbooks.playbooks.isNotEmpty;
-                                return PrimaryButton(
-                                  density: ButtonDensity.icon,
-                                  onPressed: !canCreate
-                                      ? null
-                                      : () async {
-                                          final created =
-                                              await showDialog<Task>(
-                                                context: context,
-                                                builder: (context) =>
-                                                    _TaskEditDialog(
-                                                      initial: null,
-                                                      playbooks:
-                                                          playbooks.playbooks,
-                                                    ),
-                                              );
-                                          if (created == null) return;
-                                          try {
-                                            await controller.upsert(created);
-                                          } on AppException catch (e) {
-                                            if (context.mounted) {
-                                              await showAppErrorDialog(
-                                                context,
-                                                e,
-                                              );
-                                            }
-                                          }
-                                        },
-                                  child: const Icon(Icons.add),
-                                );
-                              }),
+                              PrimaryButton(
+                                density: ButtonDensity.icon,
+                                onPressed: () async {
+                                  final created = await showDialog<Task>(
+                                    context: context,
+                                    builder: (context) => _TaskEditDialog(
+                                      initial: null,
+                                      playbooks: playbooks.playbooks,
+                                    ),
+                                  );
+                                  if (created == null) return;
+                                  try {
+                                    await controller.upsert(created);
+                                  } on AppException catch (e) {
+                                    if (context.mounted) {
+                                      await showAppErrorDialog(context, e);
+                                    }
+                                  }
+                                },
+                                child: const Icon(Icons.add),
+                              ),
+                              SizedBox(width: 8.w),
+                              OutlineButton(
+                                density: ButtonDensity.icon,
+                                onPressed: importTaskFromClipboard,
+                                child: const Icon(Icons.content_paste),
+                              ),
                             ],
                           ),
                           Obx(() {
@@ -88,7 +215,7 @@ class TasksPage extends StatelessWidget {
                             return Padding(
                               padding: EdgeInsets.only(top: 8.h),
                               child: const Text(
-                                '提示：请先创建 Playbook，才能新增任务。',
+                                '提示：当前暂无 Playbook，仅能创建“脚本任务”；如需 Ansible 任务请先创建 Playbook。',
                               ).muted(),
                             );
                           }),
@@ -112,13 +239,18 @@ class TasksPage extends StatelessWidget {
                                   final slotText = t.fileSlots.isEmpty
                                       ? '槽位: 无'
                                       : '槽位: ${t.fileSlots.length}';
+                                  final varText = t.variables.isEmpty
+                                      ? '变量: 无'
+                                      : '变量: ${t.variables.length}';
                                   return m.ListTile(
                                     selected: selected,
                                     title: Text(t.name),
                                     subtitle: Text(
-                                      pb == null
-                                          ? 'Playbook: 未找到 · $slotText'
-                                          : 'Playbook: ${pb.name} · $slotText',
+                                      t.isLocalScript
+                                          ? '类型: 脚本(本地) · $varText'
+                                          : (pb == null
+                                              ? '类型: Playbook(控制端) · Playbook: 未找到 · $slotText · $varText'
+                                              : '类型: Playbook(控制端) · Playbook: ${pb.name} · $slotText · $varText'),
                                     ).muted(),
                                     onTap: () =>
                                         controller.selectedId.value = t.id,
@@ -166,6 +298,80 @@ class _TaskDetail extends StatelessWidget {
   Widget build(BuildContext context) {
     final controller = Get.find<TasksController>();
     final playbooks = Get.find<PlaybooksController>();
+
+    Future<void> duplicateTask() async {
+      final seed = Task(
+        id: AppServices.I.uuid.v4(),
+        name: '${task.name} (复制)',
+        description: task.description,
+        type: task.type,
+        playbookId: task.playbookId,
+        script: task.script,
+        fileSlots: List<FileSlot>.from(task.fileSlots),
+        variables: List<TaskVariable>.from(task.variables),
+      );
+      final created = await showDialog<Task>(
+        context: context,
+        builder: (context) => _TaskEditDialog(
+          initial: seed,
+          playbooks: playbooks.playbooks,
+        ),
+      );
+      if (created == null) return;
+      try {
+        await controller.upsert(created);
+      } on AppException catch (e) {
+        if (context.mounted) {
+          await showAppErrorDialog(context, e);
+        }
+      }
+    }
+
+    Future<void> exportToClipboard() async {
+      final pid = controller.projectId;
+      if (pid == null) return;
+      try {
+        Map<String, Object?>? playbookPayload;
+        if (task.isAnsiblePlaybook) {
+          final meta = playbook;
+          if (meta == null) {
+            throw const AppException(
+              code: AppErrorCode.validation,
+              title: '导出失败',
+              message: '该任务绑定的 Playbook 未找到。',
+              suggestion: '请先修复任务的 Playbook 绑定后再导出。',
+            );
+          }
+          final text =
+              await AppServices.I.playbooksStore(pid).readPlaybookText(meta);
+          playbookPayload = {'meta': meta.toJson(), 'text': text};
+        }
+        final payload = <String, Object?>{
+          'format': 'simple_deploy.task.v2',
+          'exported_at': DateTime.now().toIso8601String(),
+          'task': task.toJson(),
+          'playbook': playbookPayload,
+        };
+        final pretty = const JsonEncoder.withIndent('  ').convert(payload);
+        await Clipboard.setData(ClipboardData(text: '$pretty\n'));
+        if (context.mounted) {
+          showToast(
+            context: context,
+            builder: (context, overlay) => Card(
+              child: Padding(
+                padding: EdgeInsets.all(12.r),
+                child: const Text('已导出到剪贴板'),
+              ),
+            ),
+          );
+        }
+      } on AppException catch (e) {
+        if (context.mounted) {
+          await showAppErrorDialog(context, e);
+        }
+      }
+    }
+
     return Card(
       child: Padding(
         padding: EdgeInsets.all(16.r),
@@ -194,6 +400,16 @@ class _TaskDetail extends StatelessWidget {
                     }
                   },
                   child: const Text('编辑'),
+                ),
+                SizedBox(width: 8.w),
+                GhostButton(
+                  onPressed: duplicateTask,
+                  child: const Text('复制'),
+                ),
+                SizedBox(width: 8.w),
+                OutlineButton(
+                  onPressed: exportToClipboard,
+                  child: const Text('导出'),
                 ),
                 SizedBox(width: 8.w),
                 DestructiveButton(
@@ -231,11 +447,62 @@ class _TaskDetail extends StatelessWidget {
             SizedBox(height: 12.h),
             Text('ID: ${task.id}').mono(),
             SizedBox(height: 6.h),
-            Text('Playbook: ${playbook?.name ?? '未找到'}').mono(),
+            Text('类型: ${task.isLocalScript ? '脚本(本地)' : 'Playbook(控制端)'}')
+                .mono(),
+            SizedBox(height: 6.h),
+            if (task.isAnsiblePlaybook)
+              Text('Playbook: ${playbook?.name ?? '未找到'}').mono(),
+            if (task.isLocalScript)
+              Text('解释器: ${task.script?.shell ?? '-'}').mono(),
             SizedBox(height: 12.h),
             Text('说明').p(),
             Text(task.description.isEmpty ? '—' : task.description).muted(),
             SizedBox(height: 16.h),
+            Text('变量').p(),
+            SizedBox(height: 8.h),
+            if (task.variables.isEmpty)
+              const Text('无').muted()
+            else
+              SizedBox(
+                height: 120.h,
+                child: ListView.builder(
+                  itemCount: task.variables.length,
+                  itemBuilder: (context, i) {
+                    final v = task.variables[i];
+                    final req = v.required ? '必填' : '可选';
+                    final def = v.defaultValue.isEmpty
+                        ? '默认: (空)'
+                        : '默认: ${v.defaultValue}';
+                    return Padding(
+                      padding: EdgeInsets.symmetric(vertical: 6.h),
+                      child: Row(
+                        children: [
+                          Expanded(child: Text(v.name).mono()),
+                          SizedBox(width: 12.w),
+                          Text(req).muted(),
+                          SizedBox(width: 12.w),
+                          Text(def).muted(),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ),
+            SizedBox(height: 16.h),
+            if (task.isLocalScript) ...[
+              Text('脚本').p(),
+              SizedBox(height: 8.h),
+              Expanded(
+                child: SingleChildScrollView(
+                  child: Text(
+                    (() {
+                      final text = task.script?.content ?? '';
+                      return text.trim().isEmpty ? '—' : text;
+                    })(),
+                  ).mono(),
+                ),
+              ),
+            ] else ...[
             Text('文件槽位').p(),
             SizedBox(height: 8.h),
             Expanded(
@@ -260,6 +527,7 @@ class _TaskDetail extends StatelessWidget {
                       },
                     ),
             ),
+            ],
           ],
         ),
       ),
@@ -280,11 +548,24 @@ class _TaskEditDialog extends StatefulWidget {
 class _TaskEditDialogState extends State<_TaskEditDialog> {
   final m.TextEditingController _name = m.TextEditingController();
   final m.TextEditingController _desc = m.TextEditingController();
-  final List<FileSlot> _slots = <FileSlot>[];
+  final m.TextEditingController _script = m.TextEditingController();
 
+  final List<FileSlot> _slots = <FileSlot>[];
+  final List<TaskVariable> _vars = <TaskVariable>[];
+
+  String _type = TaskType.ansiblePlaybook;
   String? _playbookId;
+  String _shell = 'bash';
 
   static final RegExp _slotNameRe = RegExp(r'^[A-Za-z0-9_]+$');
+  static final RegExp _varNameRe = RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$');
+  static const Set<String> _reservedVarNames = {
+    'run_id',
+    'run_dir',
+    'files',
+    'task',
+    'task_files',
+  };
 
   @override
   void initState() {
@@ -293,10 +574,22 @@ class _TaskEditDialogState extends State<_TaskEditDialog> {
     if (i != null) {
       _name.text = i.name;
       _desc.text = i.description;
+      _type = i.type;
       _playbookId = i.playbookId;
       _slots.addAll(i.fileSlots);
-    } else if (widget.playbooks.isNotEmpty) {
-      _playbookId = widget.playbooks.first.id;
+      _vars.addAll(i.variables);
+      final s = i.script;
+      if (s != null) {
+        _shell = s.shell;
+        _script.text = s.content;
+      }
+    } else {
+      _type = widget.playbooks.isEmpty
+          ? TaskType.localScript
+          : TaskType.ansiblePlaybook;
+      if (widget.playbooks.isNotEmpty) {
+        _playbookId = widget.playbooks.first.id;
+      }
     }
   }
 
@@ -304,6 +597,7 @@ class _TaskEditDialogState extends State<_TaskEditDialog> {
   void dispose() {
     _name.dispose();
     _desc.dispose();
+    _script.dispose();
     super.dispose();
   }
 
@@ -330,9 +624,66 @@ class _TaskEditDialogState extends State<_TaskEditDialog> {
     setState(() => _slots.add(r));
   }
 
+  Future<void> _addVar() async {
+    final r = await showDialog<TaskVariable>(
+      context: context,
+      builder: (context) => const _TaskVarDialog(),
+    );
+    if (r == null) return;
+    if (!mounted) return;
+
+    final name = r.name.trim();
+    if (name.isEmpty || !_varNameRe.hasMatch(name)) {
+      await showAppErrorDialog(
+        context,
+        const AppException(
+          code: AppErrorCode.validation,
+          title: '变量名不合法',
+          message: '变量名仅支持字母/数字/下划线，且必须以字母/下划线开头。',
+          suggestion: '命名规范：`[A-Za-z_][A-Za-z0-9_]*`。',
+        ),
+      );
+      return;
+    }
+    if (_reservedVarNames.contains(name)) {
+      await showAppErrorDialog(
+        context,
+        AppException(
+          code: AppErrorCode.validation,
+          title: '变量名被占用',
+          message: '变量名 `$name` 为系统保留字段，不能使用。',
+          suggestion: '请修改变量名后重试。',
+        ),
+      );
+      return;
+    }
+    if (_vars.any((v) => v.name == name)) {
+      await showAppErrorDialog(
+        context,
+        const AppException(
+          code: AppErrorCode.validation,
+          title: '变量名重复',
+          message: '同一个任务内不允许出现重复的变量名。',
+          suggestion: '修改变量名后重试。',
+        ),
+      );
+      return;
+    }
+
+    setState(() {
+      _vars.add(
+        r.copyWith(
+          name: name,
+          description: r.description.trim(),
+        ),
+      );
+    });
+  }
+
   void _validateTaskOrThrow({
     required String name,
-    required String playbookId,
+    required String type,
+    required String? playbookId,
   }) {
     if (name.isEmpty) {
       throw const AppException(
@@ -342,21 +693,40 @@ class _TaskEditDialogState extends State<_TaskEditDialog> {
         suggestion: '例如：部署 / 升级 / 回滚。',
       );
     }
-    if (widget.playbooks.every((p) => p.id != playbookId)) {
-      throw const AppException(
-        code: AppErrorCode.validation,
-        title: 'Playbook 不存在',
-        message: '所选 Playbook 不存在或已被删除。',
-        suggestion: '重新选择 Playbook，或先创建 Playbook。',
-      );
-    }
-    for (final s in _slots) {
-      if (s.name.trim().isEmpty || !_slotNameRe.hasMatch(s.name)) {
+    if (type == TaskType.ansiblePlaybook) {
+      if (playbookId == null) {
         throw const AppException(
           code: AppErrorCode.validation,
-          title: '槽位名不合法',
-          message: '槽位名仅支持字母/数字/下划线。',
-          suggestion: '命名规范：`[a-zA-Z0-9_]+`。',
+          title: '未绑定 Playbook',
+          message: 'Ansible Playbook 任务必须选择一个 Playbook。',
+          suggestion: '在任务编辑中绑定 Playbook 后重试。',
+        );
+      }
+      if (widget.playbooks.every((p) => p.id != playbookId)) {
+        throw const AppException(
+          code: AppErrorCode.validation,
+          title: 'Playbook 不存在',
+          message: '所选 Playbook 不存在或已被删除。',
+          suggestion: '重新选择 Playbook，或先创建 Playbook。',
+        );
+      }
+      for (final s in _slots) {
+        if (s.name.trim().isEmpty || !_slotNameRe.hasMatch(s.name)) {
+          throw const AppException(
+            code: AppErrorCode.validation,
+            title: '槽位名不合法',
+            message: '槽位名仅支持字母/数字/下划线。',
+            suggestion: '命名规范：`[a-zA-Z0-9_]+`。',
+          );
+        }
+      }
+    } else {
+      if (_script.text.trim().isEmpty) {
+        throw const AppException(
+          code: AppErrorCode.validation,
+          title: '脚本不能为空',
+          message: '脚本任务必须填写脚本内容。',
+          suggestion: '填写 bash/sh 脚本后重试。',
         );
       }
     }
@@ -368,7 +738,7 @@ class _TaskEditDialogState extends State<_TaskEditDialog> {
     return AlertDialog(
       title: Text(initial == null ? '新增任务' : '编辑任务'),
       content: SizedBox(
-        width: 560.w,
+        width: 680.w,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -382,12 +752,43 @@ class _TaskEditDialogState extends State<_TaskEditDialog> {
               decoration: const m.InputDecoration(labelText: '描述（可选）'),
             ),
             SizedBox(height: 12.h),
-            if (widget.playbooks.isEmpty)
+            m.DropdownButtonFormField<String>(
+              key: ValueKey(_type),
+              initialValue: _type,
+              decoration: const m.InputDecoration(labelText: '类型'),
+              items: const [
+                m.DropdownMenuItem(
+                  value: TaskType.ansiblePlaybook,
+                  child: Text('Ansible Playbook（控制端执行）'),
+                ),
+                m.DropdownMenuItem(
+                  value: TaskType.localScript,
+                  child: Text('脚本任务（本地执行）'),
+                ),
+              ],
+              onChanged: (v) {
+                if (v == null) return;
+                setState(() {
+                  _type = v;
+                  if (_type == TaskType.localScript) {
+                    _playbookId = null;
+                    _slots.clear();
+                  }
+                  if (_type == TaskType.ansiblePlaybook &&
+                      _playbookId == null &&
+                      widget.playbooks.isNotEmpty) {
+                    _playbookId = widget.playbooks.first.id;
+                  }
+                });
+              },
+            ),
+            SizedBox(height: 12.h),
+            if (widget.playbooks.isEmpty && _type == TaskType.ansiblePlaybook)
               Align(
                 alignment: Alignment.centerLeft,
                 child: const Text('暂无 Playbook，请先到 Playbook 页面创建。').muted(),
               )
-            else
+            else if (_type == TaskType.ansiblePlaybook)
               m.DropdownButtonFormField<String>(
                 key: ValueKey(_playbookId),
                 initialValue: _playbookId,
@@ -400,11 +801,69 @@ class _TaskEditDialogState extends State<_TaskEditDialog> {
                     .toList(),
                 onChanged: (v) => setState(() => _playbookId = v),
               ),
+            if (_type == TaskType.localScript) ...[
+              SizedBox(height: 12.h),
+              m.DropdownButtonFormField<String>(
+                key: ValueKey(_shell),
+                initialValue: _shell,
+                decoration: const m.InputDecoration(labelText: '解释器'),
+                items: const [
+                  m.DropdownMenuItem(value: 'bash', child: Text('bash')),
+                  m.DropdownMenuItem(value: 'sh', child: Text('sh')),
+                ],
+                onChanged: (v) => setState(() => _shell = v ?? _shell),
+              ),
+              SizedBox(height: 12.h),
+              m.TextField(
+                controller: _script,
+                maxLines: 10,
+                decoration: const m.InputDecoration(
+                  labelText: '脚本内容',
+                  hintText:
+                      '变量会以环境变量形式注入：SD_<var_name>；同时提供 SD_STAGE_DIR/SD_TASK_VARS_JSON 等。',
+                ),
+              ),
+            ],
+            SizedBox(height: 16.h),
+            Row(
+              children: [
+                const Expanded(child: Text('变量')),
+                OutlineButton(onPressed: _addVar, child: const Text('新增变量')),
+              ],
+            ),
+            SizedBox(height: 8.h),
+            SizedBox(
+              height: 140.h,
+              child: _vars.isEmpty
+                  ? const Center(child: Text('无'))
+                  : m.ListView.builder(
+                      itemCount: _vars.length,
+                      itemBuilder: (context, i) {
+                        final v = _vars[i];
+                        final req = v.required ? '必填' : '可选';
+                        final def = v.defaultValue.isEmpty
+                            ? '默认: (空)'
+                            : '默认: ${v.defaultValue}';
+                        return m.ListTile(
+                          title: Text(v.name).mono(),
+                          subtitle: Text('$req · $def').muted(),
+                          trailing: GhostButton(
+                            density: ButtonDensity.icon,
+                            onPressed: () => setState(() => _vars.removeAt(i)),
+                            child: const Icon(Icons.close),
+                          ),
+                        );
+                      },
+                    ),
+            ),
             SizedBox(height: 16.h),
             Row(
               children: [
                 const Expanded(child: Text('文件槽位')),
-                OutlineButton(onPressed: _addSlot, child: const Text('新增槽位')),
+                OutlineButton(
+                  onPressed: _type == TaskType.ansiblePlaybook ? _addSlot : null,
+                  child: const Text('新增槽位'),
+                ),
               ],
             ),
             SizedBox(height: 8.h),
@@ -423,7 +882,9 @@ class _TaskEditDialogState extends State<_TaskEditDialog> {
                           ).muted(),
                           trailing: GhostButton(
                             density: ButtonDensity.icon,
-                            onPressed: () => setState(() => _slots.removeAt(i)),
+                            onPressed: _type == TaskType.ansiblePlaybook
+                                ? () => setState(() => _slots.removeAt(i))
+                                : null,
                             child: const Icon(Icons.close),
                           ),
                         );
@@ -439,22 +900,31 @@ class _TaskEditDialogState extends State<_TaskEditDialog> {
           child: const Text('取消'),
         ),
         PrimaryButton(
-          onPressed: widget.playbooks.isEmpty
-              ? null
-              : () async {
+          onPressed: () async {
                   final name = _name.text.trim();
-                  final pb = _playbookId;
-                  if (pb == null) return;
                   try {
-                    _validateTaskOrThrow(name: name, playbookId: pb);
+                    _validateTaskOrThrow(
+                      name: name,
+                      type: _type,
+                      playbookId: _playbookId,
+                    );
                     if (!context.mounted) return;
                     Navigator.of(context).pop(
                       Task(
                         id: initial?.id ?? AppServices.I.uuid.v4(),
                         name: name,
                         description: _desc.text.trim(),
-                        playbookId: pb,
-                        fileSlots: List<FileSlot>.from(_slots),
+                        type: _type,
+                        playbookId: _type == TaskType.ansiblePlaybook
+                            ? _playbookId
+                            : null,
+                        script: _type == TaskType.localScript
+                            ? TaskScript(shell: _shell, content: _script.text)
+                            : null,
+                        fileSlots: _type == TaskType.ansiblePlaybook
+                            ? List<FileSlot>.from(_slots)
+                            : const <FileSlot>[],
+                        variables: List<TaskVariable>.from(_vars),
                       ),
                     );
                   } on AppException catch (e) {
@@ -464,6 +934,85 @@ class _TaskEditDialogState extends State<_TaskEditDialog> {
                   }
                 },
           child: const Text('保存'),
+        ),
+      ],
+    );
+  }
+}
+
+class _TaskVarDialog extends StatefulWidget {
+  const _TaskVarDialog();
+
+  @override
+  State<_TaskVarDialog> createState() => _TaskVarDialogState();
+}
+
+class _TaskVarDialogState extends State<_TaskVarDialog> {
+  final m.TextEditingController _name = m.TextEditingController();
+  final m.TextEditingController _desc = m.TextEditingController();
+  final m.TextEditingController _def = m.TextEditingController();
+  bool _required = false;
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _desc.dispose();
+    _def.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('新增变量'),
+      content: SizedBox(
+        width: 520.w,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            m.TextField(
+              controller: _name,
+              decoration: const m.InputDecoration(
+                labelText: '变量名',
+                hintText: '例如：version / package_name / env',
+              ),
+            ),
+            SizedBox(height: 8.h),
+            m.TextField(
+              controller: _def,
+              decoration: const m.InputDecoration(labelText: '默认值（可选）'),
+            ),
+            SizedBox(height: 8.h),
+            m.TextField(
+              controller: _desc,
+              decoration: const m.InputDecoration(labelText: '描述（可选）'),
+            ),
+            SizedBox(height: 8.h),
+            m.CheckboxListTile(
+              value: _required,
+              onChanged: (v) => setState(() => _required = v ?? _required),
+              title: const Text('必填'),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        OutlineButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('取消'),
+        ),
+        PrimaryButton(
+          onPressed: () {
+            Navigator.of(context).pop(
+              TaskVariable(
+                name: _name.text.trim(),
+                description: _desc.text.trim(),
+                defaultValue: _def.text,
+                required: _required,
+              ),
+            );
+          },
+          child: const Text('确定'),
         ),
       ],
     );

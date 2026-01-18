@@ -86,7 +86,7 @@ class PlaybooksController extends GetxController {
     final deleting = ids.toSet();
     final tasks = await AppServices.I.tasksStore(pid).list();
     final affected = tasks
-        .where((t) => deleting.contains(t.playbookId))
+        .where((t) => t.playbookId != null && deleting.contains(t.playbookId))
         .toList();
     if (affected.isEmpty) {
       return;
@@ -95,7 +95,7 @@ class PlaybooksController extends GetxController {
     final byId = {for (final p in playbooks) p.id: p};
     final byPlaybook = <String, List<Task>>{};
     for (final t in affected) {
-      (byPlaybook[t.playbookId] ??= <Task>[]).add(t);
+      (byPlaybook[t.playbookId!] ??= <Task>[]).add(t);
     }
 
     final buf = StringBuffer();

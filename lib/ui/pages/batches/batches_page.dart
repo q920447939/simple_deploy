@@ -10,6 +10,7 @@ import 'package:shadcn_flutter/shadcn_flutter.dart';
 import '../../../model/batch.dart';
 import '../../../model/file_slot.dart';
 import '../../../model/run.dart';
+import '../../../model/run_inputs.dart';
 import '../../../model/server.dart';
 import '../../../model/task.dart';
 import '../../../services/app_services.dart';
@@ -194,9 +195,9 @@ class _BatchDetail extends StatelessWidget {
 
     Future<void> onExecute() async {
       try {
-        final inputs = await showDialog<Map<String, Map<String, List<String>>>>(
+        final inputs = await showDialog<RunInputs>(
           context: context,
-          builder: (context) => _BatchFileInputsDialog(tasks: tasks),
+          builder: (context) => _BatchInputsDialog(tasks: tasks),
         );
         if (inputs == null) return;
         if (!context.mounted) return;
@@ -221,7 +222,7 @@ class _BatchDetail extends StatelessWidget {
         final allowUnsupported =
             await _maybeConfirmUnsupportedControlAutoInstall(context, c);
         if (allowUnsupported == null) return;
-        await controller.startRunWithFiles(
+        await controller.startRunWithInputs(
           inputs,
           allowUnsupportedControlOsAutoInstall: allowUnsupported,
         );
@@ -234,13 +235,13 @@ class _BatchDetail extends StatelessWidget {
 
     Future<void> onExecuteReuseLast() async {
       try {
-        final last = await controller.readLastFileInputs(batch.id);
+        final last = await controller.readLastInputs(batch.id);
         if (last == null) {
           throw const AppException(
             code: AppErrorCode.validation,
             title: '暂无上次文件选择',
-            message: '该批次没有保存过文件选择记录，无法沿用。',
-            suggestion: '点击“选择文件并执行”并至少选择一次文件后即可沿用。',
+            message: '该批次没有保存过运行输入记录，无法沿用。',
+            suggestion: '点击“选择输入并执行”并至少执行一次后即可沿用。',
           );
         }
         if (!context.mounted) return;
@@ -267,7 +268,7 @@ class _BatchDetail extends StatelessWidget {
             await _maybeConfirmUnsupportedControlAutoInstall(context, c);
         if (allowUnsupported == null) return;
 
-        await controller.startRunWithFiles(
+        await controller.startRunWithInputs(
           last,
           allowUnsupportedControlOsAutoInstall: allowUnsupported,
         );
@@ -388,12 +389,12 @@ class _BatchDetail extends StatelessWidget {
                 Expanded(child: Text('执行').p()),
                 PrimaryButton(
                   onPressed: paused ? onExecute : null,
-                  child: const Text('选择文件并执行'),
+                  child: const Text('选择输入并执行'),
                 ),
                 SizedBox(width: 8.w),
                 OutlineButton(
                   onPressed: paused ? onExecuteReuseLast : null,
-                  child: const Text('沿用上次文件执行'),
+                  child: const Text('沿用上次输入执行'),
                 ),
                 SizedBox(width: 8.w),
                 OutlineButton(
@@ -1223,36 +1224,71 @@ String _fmtRunTime(DateTime dt) {
   return '${d.year}-${two(d.month)}-${two(d.day)} ${two(d.hour)}:${two(d.minute)}:${two(d.second)}';
 }
 
-class _BatchFileInputsDialog extends StatefulWidget {
+class _BatchInputsDialog extends StatefulWidget {
   final List<Task> tasks;
 
-  const _BatchFileInputsDialog({required this.tasks});
+  const _BatchInputsDialog({required this.tasks});
 
   @override
-  State<_BatchFileInputsDialog> createState() => _BatchFileInputsDialogState();
+  State<_BatchInputsDialog> createState() => _BatchInputsDialogState();
 }
 
-class _BatchFileInputsDialogState extends State<_BatchFileInputsDialog> {
-  final Map<String, Map<String, List<String>>> _inputs = {};
+class _BatchInputsDialogState extends State<_BatchInputsDialog> {
+  final Map<String, Map<String, List<String>>> _fileInputs = {};
+  final Map<String, Map<String, m.TextEditingController>> _varCtrls = {};
+
+  @override
+  void initState() {
+    super.initState();
+    for (final t in widget.tasks) {
+      if (t.variables.isEmpty) continue;
+      final byVar = _varCtrls.putIfAbsent(
+        t.id,
+        () => <String, m.TextEditingController>{},
+      );
+      for (final v in t.variables) {
+        byVar.putIfAbsent(
+          v.name,
+          () => m.TextEditingController(text: v.defaultValue),
+        );
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    for (final byVar in _varCtrls.values) {
+      for (final c in byVar.values) {
+        c.dispose();
+      }
+    }
+    super.dispose();
+  }
 
   List<String> _ensureList(String taskId, String slotName) {
-    final byTask = _inputs.putIfAbsent(taskId, () => <String, List<String>>{});
+    final byTask =
+        _fileInputs.putIfAbsent(taskId, () => <String, List<String>>{});
     return byTask.putIfAbsent(slotName, () => <String>[]);
   }
 
   bool get _canStart {
     for (final t in widget.tasks) {
       for (final s in t.fileSlots.where((x) => x.required)) {
-        final list = _inputs[t.id]?[s.name] ?? const <String>[];
+        final list = _fileInputs[t.id]?[s.name] ?? const <String>[];
         if (list.isEmpty) return false;
+      }
+      for (final v in t.variables.where((x) => x.required)) {
+        final c = _varCtrls[t.id]?[v.name];
+        final text = c?.text ?? '';
+        if (text.trim().isEmpty) return false;
       }
     }
     return true;
   }
 
-  Map<String, Map<String, List<String>>> _normalized() {
-    final out = <String, Map<String, List<String>>>{};
-    for (final entry in _inputs.entries) {
+  RunInputs _normalized() {
+    final outFiles = <String, Map<String, List<String>>>{};
+    for (final entry in _fileInputs.entries) {
       final slots = <String, List<String>>{};
       for (final s in entry.value.entries) {
         final list = s.value.where((x) => x.trim().isNotEmpty).toList();
@@ -1260,9 +1296,20 @@ class _BatchFileInputsDialogState extends State<_BatchFileInputsDialog> {
         slots[s.key] = list;
       }
       if (slots.isEmpty) continue;
-      out[entry.key] = slots;
+      outFiles[entry.key] = slots;
     }
-    return out;
+
+    final outVars = <String, Map<String, String>>{};
+    for (final t in widget.tasks) {
+      if (t.variables.isEmpty) continue;
+      final byVar = _varCtrls[t.id];
+      if (byVar == null) continue;
+      outVars[t.id] = <String, String>{
+        for (final v in t.variables) v.name: (byVar[v.name]?.text ?? ''),
+      };
+    }
+
+    return RunInputs(fileInputs: outFiles, vars: outVars);
   }
 
   Future<void> _pickFiles(Task task, FileSlot slot) async {
@@ -1292,9 +1339,9 @@ class _BatchFileInputsDialogState extends State<_BatchFileInputsDialog> {
       final list = _ensureList(task.id, slot.name);
       list.remove(path);
       if (list.isEmpty) {
-        _inputs[task.id]?.remove(slot.name);
-        if ((_inputs[task.id]?.isEmpty ?? false)) {
-          _inputs.remove(task.id);
+        _fileInputs[task.id]?.remove(slot.name);
+        if ((_fileInputs[task.id]?.isEmpty ?? false)) {
+          _fileInputs.remove(task.id);
         }
       }
     });
@@ -1302,9 +1349,9 @@ class _BatchFileInputsDialogState extends State<_BatchFileInputsDialog> {
 
   void _clear(Task task, FileSlot slot) {
     setState(() {
-      _inputs[task.id]?.remove(slot.name);
-      if ((_inputs[task.id]?.isEmpty ?? false)) {
-        _inputs.remove(task.id);
+      _fileInputs[task.id]?.remove(slot.name);
+      if ((_fileInputs[task.id]?.isEmpty ?? false)) {
+        _fileInputs.remove(task.id);
       }
     });
   }
@@ -1312,18 +1359,33 @@ class _BatchFileInputsDialogState extends State<_BatchFileInputsDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('选择运行输入文件'),
+      title: const Text('选择运行输入'),
       content: SizedBox(
         width: 760.w,
         height: 560.h,
         child: m.ListView(
           children: [
-            const Text('说明：必选槽位未选择文件将无法开始执行。').muted(),
+            const Text('说明：必选变量/必选槽位未填写/未选择文件将无法开始执行。').muted(),
             SizedBox(height: 12.h),
             for (var ti = 0; ti < widget.tasks.length; ti++) ...[
               if (ti > 0) const Divider(),
               Text(widget.tasks[ti].name).p(),
               SizedBox(height: 6.h),
+              if (widget.tasks[ti].variables.isNotEmpty) ...[
+                for (final v in widget.tasks[ti].variables) ...[
+                  m.TextField(
+                    controller: _varCtrls[widget.tasks[ti].id]?[v.name],
+                    decoration: m.InputDecoration(
+                      labelText: v.required ? '${v.name}（必填）' : v.name,
+                      helperText: v.description.trim().isEmpty
+                          ? null
+                          : v.description.trim(),
+                    ),
+                  ),
+                  SizedBox(height: 8.h),
+                ],
+                SizedBox(height: 6.h),
+              ],
               if (widget.tasks[ti].fileSlots.isEmpty)
                 Padding(
                   padding: EdgeInsets.only(bottom: 8.h),
@@ -1333,7 +1395,7 @@ class _BatchFileInputsDialogState extends State<_BatchFileInputsDialog> {
                 _SlotRow(
                   slot: slot,
                   selectedPaths:
-                      _inputs[widget.tasks[ti].id]?[slot.name] ?? const [],
+                      _fileInputs[widget.tasks[ti].id]?[slot.name] ?? const [],
                   onPick: () => _pickFiles(widget.tasks[ti], slot),
                   onClear: () => _clear(widget.tasks[ti], slot),
                   onRemove: (path) => _remove(widget.tasks[ti], slot, path),
