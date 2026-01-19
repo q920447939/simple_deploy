@@ -739,9 +739,14 @@ class _TaskEditDialogState extends State<_TaskEditDialog> {
       title: Text(initial == null ? '新增任务' : '编辑任务'),
       content: SizedBox(
         width: 680.w,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
+        child: m.ConstrainedBox(
+          constraints: m.BoxConstraints(
+            maxHeight: m.MediaQuery.of(context).size.height * 0.7,
+          ),
+          child: m.SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
             m.TextField(
               controller: _name,
               decoration: const m.InputDecoration(labelText: '名称'),
@@ -893,6 +898,8 @@ class _TaskEditDialogState extends State<_TaskEditDialog> {
             ),
           ],
         ),
+          ),
+        ),
       ),
       actions: [
         OutlineButton(
@@ -967,9 +974,14 @@ class _TaskVarDialogState extends State<_TaskVarDialog> {
       title: const Text('新增变量'),
       content: SizedBox(
         width: 520.w,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
+        child: m.ConstrainedBox(
+          constraints: m.BoxConstraints(
+            maxHeight: m.MediaQuery.of(context).size.height * 0.6,
+          ),
+          child: m.SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
             m.TextField(
               controller: _name,
               decoration: const m.InputDecoration(
@@ -994,6 +1006,8 @@ class _TaskVarDialogState extends State<_TaskVarDialog> {
               title: const Text('必填'),
             ),
           ],
+        ),
+          ),
         ),
       ),
       actions: [
