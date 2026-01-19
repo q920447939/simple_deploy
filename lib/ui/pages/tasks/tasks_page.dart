@@ -15,15 +15,47 @@ import '../../controllers/playbooks_controller.dart';
 import '../../controllers/tasks_controller.dart';
 import '../../widgets/app_error_dialog.dart';
 import '../../widgets/project_guard.dart';
-import '../../utils/layout_metrics.dart';
 
 class TasksPage extends StatelessWidget {
   const TasksPage({super.key});
 
   @override
   Widget build(BuildContext context) {
+    // Inject controllers
     final controller = Get.put(TasksController());
-    final playbooks = Get.put(PlaybooksController());
+    Get.put(PlaybooksController());
+
+    return ProjectGuard(
+      child: Scaffold(
+        child: Row(
+          children: [
+            // Sidebar: Fixed width
+            SizedBox(width: 320.w, child: const _TaskSidebar()),
+            const VerticalDivider(width: 1),
+            // Main Content
+            Expanded(
+              child: Obx(() {
+                final t = controller.selected;
+                if (t == null) {
+                  return const Center(child: Text('请选择一个任务查看详情'));
+                }
+                return _TaskDetail(task: t);
+              }),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _TaskSidebar extends StatelessWidget {
+  const _TaskSidebar();
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = Get.find<TasksController>();
+    final playbooks = Get.find<PlaybooksController>();
 
     Future<void> importTaskFromClipboard() async {
       final pid = controller.projectId;
@@ -67,8 +99,7 @@ class TasksPage extends StatelessWidget {
           );
         }
 
-        final imported =
-            Task.fromJson(taskRaw.cast<String, Object?>());
+        final imported = Task.fromJson(taskRaw.cast<String, Object?>());
 
         String? newPlaybookId;
         if (imported.isAnsiblePlaybook) {
@@ -91,8 +122,9 @@ class TasksPage extends StatelessWidget {
               suggestion: '请重新导出后再导入。',
             );
           }
-          final srcMeta =
-              PlaybookMeta.fromJson(metaRaw.cast<String, Object?>());
+          final srcMeta = PlaybookMeta.fromJson(
+            metaRaw.cast<String, Object?>(),
+          );
           final newId = AppServices.I.uuid.v4();
           final now = DateTime.now();
           final ext = srcMeta.relativePath.toLowerCase().endsWith('.yaml')
@@ -155,149 +187,192 @@ class TasksPage extends StatelessWidget {
       }
     }
 
-    return ProjectGuard(
-      child: Padding(
-        padding: EdgeInsets.all(16.r),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final leftWidth = masterDetailLeftWidth(
-              constraints,
-              min: 340,
-              max: 520,
-              ratio: 0.36,
-            );
-            return Row(
-              children: [
-                SizedBox(
-                  width: leftWidth,
-                  child: Card(
+    return Column(
+      children: [
+        // Sidebar Header
+        Container(
+          height: 50.h,
+          padding: EdgeInsets.symmetric(horizontal: 12.w),
+          decoration: BoxDecoration(
+            border: Border(
+              bottom: BorderSide(color: m.Theme.of(context).dividerColor),
+            ),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '任务',
+                  style: m.Theme.of(context).textTheme.titleMedium,
+                ),
+              ),
+              GhostButton(
+                density: ButtonDensity.icon,
+                onPressed: () async {
+                  final created = await showDialog<Task>(
+                    context: context,
+                    builder: (context) => _TaskEditDialog(
+                      initial: null,
+                      playbooks: playbooks.playbooks,
+                    ),
+                  );
+                  if (created == null) return;
+                  try {
+                    await controller.upsert(created);
+                  } on AppException catch (e) {
+                    if (context.mounted) {
+                      await showAppErrorDialog(context, e);
+                    }
+                  }
+                },
+                child: const Icon(Icons.add, size: 18),
+              ),
+              SizedBox(width: 4.w),
+              GhostButton(
+                density: ButtonDensity.icon,
+                onPressed: importTaskFromClipboard,
+                child: const Icon(Icons.content_paste, size: 16),
+              ),
+            ],
+          ),
+        ),
+        // Task List
+        Expanded(
+          child: Obx(() {
+            final items = controller.tasks;
+            if (items.isEmpty) {
+              return const Center(child: Text('暂无任务'));
+            }
+            return m.ListView.separated(
+              itemCount: items.length,
+              separatorBuilder: (_, __) => const Divider(height: 1),
+              itemBuilder: (context, i) {
+                final t = items[i];
+                final selected = controller.selectedId.value == t.id;
+                final isLocal = t.isLocalScript;
+
+                return m.Material(
+                  color: selected
+                      ? m.Theme.of(
+                          context,
+                        ).colorScheme.primary.withValues(alpha: 0.05)
+                      : Colors.transparent,
+                  child: m.InkWell(
+                    onTap: () => controller.selectedId.value = t.id,
                     child: Padding(
-                      padding: EdgeInsets.all(12.r),
+                      padding: EdgeInsets.symmetric(
+                        horizontal: 12.w,
+                        vertical: 10.h,
+                      ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
+                          Text(
+                            t.name,
+                            style: m.Theme.of(context).textTheme.bodyMedium
+                                ?.copyWith(
+                                  fontWeight: FontWeight.w500,
+                                  color: selected
+                                      ? m.Theme.of(context).colorScheme.primary
+                                      : null,
+                                ),
+                          ),
+                          SizedBox(height: 4.h),
                           Row(
                             children: [
-                              Expanded(child: Text('任务').p()),
-                              PrimaryButton(
-                                density: ButtonDensity.icon,
-                                onPressed: () async {
-                                  final created = await showDialog<Task>(
-                                    context: context,
-                                    builder: (context) => _TaskEditDialog(
-                                      initial: null,
-                                      playbooks: playbooks.playbooks,
-                                    ),
-                                  );
-                                  if (created == null) return;
-                                  try {
-                                    await controller.upsert(created);
-                                  } on AppException catch (e) {
-                                    if (context.mounted) {
-                                      await showAppErrorDialog(context, e);
-                                    }
-                                  }
-                                },
-                                child: const Icon(Icons.add),
+                              Container(
+                                padding: EdgeInsets.symmetric(
+                                  horizontal: 4.w,
+                                  vertical: 1.h,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: isLocal
+                                      ? m.Colors.blue.withValues(alpha: 0.1)
+                                      : m.Colors.orange.withValues(alpha: 0.1),
+                                  borderRadius: BorderRadius.circular(4.r),
+                                ),
+                                child: Text(
+                                  isLocal ? 'Script' : 'Playbook',
+                                  style: TextStyle(
+                                    fontSize: 10.sp,
+                                    color: isLocal
+                                        ? m.Colors.blue
+                                        : m.Colors.orange.shade800,
+                                  ),
+                                ),
                               ),
-                              SizedBox(width: 8.w),
-                              OutlineButton(
-                                density: ButtonDensity.icon,
-                                onPressed: importTaskFromClipboard,
-                                child: const Icon(Icons.content_paste),
-                              ),
+                              if (t.variables.isNotEmpty) ...[
+                                SizedBox(width: 6.w),
+                                Text(
+                                  '${t.variables.length} Vars',
+                                  style: m.Theme.of(context).textTheme.bodySmall
+                                      ?.copyWith(
+                                        fontSize: 11.sp,
+                                        color: m.Theme.of(context)
+                                            .colorScheme
+                                            .onSurface
+                                            .withValues(alpha: 0.5),
+                                      ),
+                                ),
+                              ],
                             ],
-                          ),
-                          Obx(() {
-                            if (playbooks.playbooks.isNotEmpty) {
-                              return const SizedBox.shrink();
-                            }
-                            return Padding(
-                              padding: EdgeInsets.only(top: 8.h),
-                              child: const Text(
-                                '提示：当前暂无 Playbook，仅能创建“脚本任务”；如需 Ansible 任务请先创建 Playbook。',
-                              ).muted(),
-                            );
-                          }),
-                          SizedBox(height: 12.h),
-                          Expanded(
-                            child: Obx(() {
-                              final items = controller.tasks;
-                              if (items.isEmpty) {
-                                return const Center(child: Text('暂无任务'));
-                              }
-                              return m.ListView.builder(
-                                itemCount: items.length,
-                                itemBuilder: (context, i) {
-                                  final t = items[i];
-                                  final selected =
-                                      controller.selectedId.value == t.id;
-                                  final pb = playbooks.playbooks
-                                      .firstWhereOrNull(
-                                        (p) => p.id == t.playbookId,
-                                      );
-                                  final slotText = t.fileSlots.isEmpty
-                                      ? '槽位: 无'
-                                      : '槽位: ${t.fileSlots.length}';
-                                  final varText = t.variables.isEmpty
-                                      ? '变量: 无'
-                                      : '变量: ${t.variables.length}';
-                                  return m.ListTile(
-                                    selected: selected,
-                                    title: Text(t.name),
-                                    subtitle: Text(
-                                      t.isLocalScript
-                                          ? '类型: 脚本(本地) · $varText'
-                                          : (pb == null
-                                              ? '类型: Playbook(控制端) · Playbook: 未找到 · $slotText · $varText'
-                                              : '类型: Playbook(控制端) · Playbook: ${pb.name} · $slotText · $varText'),
-                                    ).muted(),
-                                    onTap: () =>
-                                        controller.selectedId.value = t.id,
-                                  );
-                                },
-                              );
-                            }),
                           ),
                         ],
                       ),
                     ),
                   ),
-                ),
-                SizedBox(width: 16.w),
-                Expanded(
-                  child: Obx(() {
-                    final t = controller.selected;
-                    if (t == null) {
-                      return const Card(
-                        child: Center(child: Text('选择一个任务查看详情')),
-                      );
-                    }
-                    final pb = playbooks.playbooks.firstWhereOrNull(
-                      (p) => p.id == t.playbookId,
-                    );
-                    return _TaskDetail(task: t, playbook: pb);
-                  }),
-                ),
-              ],
+                );
+              },
             );
-          },
+          }),
         ),
-      ),
+      ],
     );
   }
 }
 
 class _TaskDetail extends StatelessWidget {
   final Task task;
-  final PlaybookMeta? playbook;
 
-  const _TaskDetail({required this.task, required this.playbook});
+  const _TaskDetail({required this.task});
 
   @override
   Widget build(BuildContext context) {
     final controller = Get.find<TasksController>();
     final playbooks = Get.find<PlaybooksController>();
+    final playbook = playbooks.playbooks.firstWhereOrNull(
+      (p) => p.id == task.playbookId,
+    );
+
+    final labelStyle = TextStyle(
+      color: m.Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
+      fontSize: 13.sp,
+    );
+    final valueStyle = TextStyle(
+      fontFamily: 'GeistMono',
+      fontSize: 13.sp,
+      height: 1.5,
+    );
+
+    Widget infoRow(String label, Widget content) {
+      return Padding(
+        padding: EdgeInsets.only(bottom: 12.h),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 80.w,
+              child: Text(label, style: labelStyle),
+            ),
+            Expanded(child: content),
+          ],
+        ),
+      );
+    }
+
+    Widget infoText(String label, String value) {
+      return infoRow(label, SelectableText(value, style: valueStyle));
+    }
 
     Future<void> duplicateTask() async {
       final seed = Task(
@@ -312,10 +387,8 @@ class _TaskDetail extends StatelessWidget {
       );
       final created = await showDialog<Task>(
         context: context,
-        builder: (context) => _TaskEditDialog(
-          initial: seed,
-          playbooks: playbooks.playbooks,
-        ),
+        builder: (context) =>
+            _TaskEditDialog(initial: seed, playbooks: playbooks.playbooks),
       );
       if (created == null) return;
       try {
@@ -342,8 +415,9 @@ class _TaskDetail extends StatelessWidget {
               suggestion: '请先修复任务的 Playbook 绑定后再导出。',
             );
           }
-          final text =
-              await AppServices.I.playbooksStore(pid).readPlaybookText(meta);
+          final text = await AppServices.I
+              .playbooksStore(pid)
+              .readPlaybookText(meta);
           playbookPayload = {'meta': meta.toJson(), 'text': text};
         }
         final payload = <String, Object?>{
@@ -372,165 +446,218 @@ class _TaskDetail extends StatelessWidget {
       }
     }
 
-    return Card(
-      child: Padding(
-        padding: EdgeInsets.all(16.r),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // Detail Header
+        Container(
+          height: 50.h,
+          padding: EdgeInsets.symmetric(horizontal: 24.w),
+          decoration: BoxDecoration(
+            border: Border(
+              bottom: BorderSide(color: m.Theme.of(context).dividerColor),
+            ),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  task.name,
+                  style: m.Theme.of(context).textTheme.titleLarge,
+                ),
+              ),
+              GhostButton(
+                density: ButtonDensity.icon,
+                onPressed: () async {
+                  final updated = await showDialog<Task>(
+                    context: context,
+                    builder: (context) => _TaskEditDialog(
+                      initial: task,
+                      playbooks: playbooks.playbooks,
+                    ),
+                  );
+                  if (updated == null) return;
+                  try {
+                    await controller.upsert(updated);
+                  } on AppException catch (e) {
+                    if (context.mounted) {
+                      await showAppErrorDialog(context, e);
+                    }
+                  }
+                },
+                child: const Icon(Icons.edit, size: 16),
+              ),
+              SizedBox(width: 8.w),
+              GhostButton(
+                density: ButtonDensity.icon,
+                onPressed: duplicateTask,
+                child: const Icon(Icons.copy, size: 16),
+              ),
+              SizedBox(width: 8.w),
+              OutlineButton(
+                density: ButtonDensity.icon,
+                onPressed: exportToClipboard,
+                child: const Icon(Icons.ios_share, size: 16),
+              ),
+              SizedBox(width: 8.w),
+              DestructiveButton(
+                density: ButtonDensity.icon,
+                onPressed: () async {
+                  final ok = await showDialog<bool>(
+                    context: context,
+                    builder: (context) => AlertDialog(
+                      title: const Text('删除任务？'),
+                      content: Text('将删除：${task.name}'),
+                      actions: [
+                        OutlineButton(
+                          onPressed: () => Navigator.of(context).pop(false),
+                          child: const Text('取消'),
+                        ),
+                        DestructiveButton(
+                          onPressed: () => Navigator.of(context).pop(true),
+                          child: const Text('删除'),
+                        ),
+                      ],
+                    ),
+                  );
+                  if (ok != true) return;
+                  try {
+                    await controller.deleteSelected();
+                  } on AppException catch (e) {
+                    if (context.mounted) {
+                      await showAppErrorDialog(context, e);
+                    }
+                  }
+                },
+                child: const Icon(Icons.delete_outline, size: 16),
+              ),
+            ],
+          ),
+        ),
+        // Content
+        Expanded(
+          child: m.SingleChildScrollView(
+            padding: EdgeInsets.all(24.r),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(child: Text(task.name).h2()),
-                GhostButton(
-                  onPressed: () async {
-                    final updated = await showDialog<Task>(
-                      context: context,
-                      builder: (context) => _TaskEditDialog(
-                        initial: task,
-                        playbooks: playbooks.playbooks,
+                Text('基本信息', style: m.Theme.of(context).textTheme.titleMedium),
+                SizedBox(height: 16.h),
+                infoText('ID', task.id),
+                infoText(
+                  '类型',
+                  task.isLocalScript ? '脚本任务 (Local)' : 'Playbook 任务 (Control)',
+                ),
+                if (task.isAnsiblePlaybook)
+                  infoText('Playbook', playbook?.name ?? '（未找到，请修复）'),
+                if (task.isLocalScript)
+                  infoText('解释器', task.script?.shell ?? 'bash'),
+                infoText(
+                  '说明',
+                  task.description.isEmpty ? '—' : task.description,
+                ),
+
+                SizedBox(height: 32.h),
+                Text('配置详情', style: m.Theme.of(context).textTheme.titleMedium),
+                SizedBox(height: 16.h),
+                if (task.isLocalScript) ...[
+                  infoRow(
+                    '脚本内容',
+                    Container(
+                      width: double.infinity,
+                      padding: EdgeInsets.all(12.r),
+                      decoration: BoxDecoration(
+                        color: m.Theme.of(context).colorScheme.surface,
+                        border: Border.all(
+                          color: m.Theme.of(context).dividerColor,
+                        ),
+                        borderRadius: BorderRadius.circular(6.r),
                       ),
-                    );
-                    if (updated == null) return;
-                    try {
-                      await controller.upsert(updated);
-                    } on AppException catch (e) {
-                      if (context.mounted) {
-                        await showAppErrorDialog(context, e);
-                      }
-                    }
-                  },
-                  child: const Text('编辑'),
-                ),
-                SizedBox(width: 8.w),
-                GhostButton(
-                  onPressed: duplicateTask,
-                  child: const Text('复制'),
-                ),
-                SizedBox(width: 8.w),
-                OutlineButton(
-                  onPressed: exportToClipboard,
-                  child: const Text('导出'),
-                ),
-                SizedBox(width: 8.w),
-                DestructiveButton(
-                  onPressed: () async {
-                    final ok = await showDialog<bool>(
-                      context: context,
-                      builder: (context) => AlertDialog(
-                        title: const Text('删除任务？'),
-                        content: Text('将删除：${task.name}'),
-                        actions: [
-                          OutlineButton(
-                            onPressed: () => Navigator.of(context).pop(false),
-                            child: const Text('取消'),
-                          ),
-                          DestructiveButton(
-                            onPressed: () => Navigator.of(context).pop(true),
-                            child: const Text('删除'),
-                          ),
-                        ],
+                      child: SelectableText(
+                        task.script?.content.trim() ?? '',
+                        style: valueStyle.copyWith(fontSize: 12.sp),
                       ),
-                    );
-                    if (ok != true) return;
-                    try {
-                      await controller.deleteSelected();
-                    } on AppException catch (e) {
-                      if (context.mounted) {
-                        await showAppErrorDialog(context, e);
-                      }
-                    }
-                  },
-                  child: const Text('删除'),
+                    ),
+                  ),
+                ] else ...[
+                  infoRow(
+                    '文件槽位',
+                    task.fileSlots.isEmpty
+                        ? Text(
+                            '无',
+                            style: valueStyle.copyWith(color: m.Colors.grey),
+                          )
+                        : Wrap(
+                            spacing: 8.w,
+                            runSpacing: 8.h,
+                            children: task.fileSlots.map((s) {
+                              return Container(
+                                padding: EdgeInsets.symmetric(
+                                  horizontal: 8.w,
+                                  vertical: 4.h,
+                                ),
+                                decoration: BoxDecoration(
+                                  border: Border.all(
+                                    color: m.Theme.of(context).dividerColor,
+                                  ),
+                                  borderRadius: BorderRadius.circular(4.r),
+                                ),
+                                child: Text(
+                                  '${s.name}${s.required ? "*" : ""} (${s.multiple ? "N" : "1"})',
+                                  style: valueStyle.copyWith(fontSize: 12.sp),
+                                ),
+                              );
+                            }).toList(),
+                          ),
+                  ),
+                ],
+                SizedBox(height: 16.h),
+                infoRow(
+                  '输入变量',
+                  task.variables.isEmpty
+                      ? Text(
+                          '无',
+                          style: valueStyle.copyWith(color: m.Colors.grey),
+                        )
+                      : Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: task.variables.map((v) {
+                            return Padding(
+                              padding: EdgeInsets.only(bottom: 4.h),
+                              child: Text.rich(
+                                TextSpan(
+                                  children: [
+                                    TextSpan(
+                                      text: v.name,
+                                      style: valueStyle.copyWith(
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    if (v.required)
+                                      TextSpan(
+                                        text: '*',
+                                        style: valueStyle.copyWith(
+                                          color: m.Colors.red,
+                                        ),
+                                      ),
+                                    TextSpan(
+                                      text: '  = ${v.defaultValue}',
+                                      style: valueStyle.copyWith(
+                                        color: m.Colors.grey,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          }).toList(),
+                        ),
                 ),
               ],
             ),
-            SizedBox(height: 12.h),
-            Text('ID: ${task.id}').mono(),
-            SizedBox(height: 6.h),
-            Text('类型: ${task.isLocalScript ? '脚本(本地)' : 'Playbook(控制端)'}')
-                .mono(),
-            SizedBox(height: 6.h),
-            if (task.isAnsiblePlaybook)
-              Text('Playbook: ${playbook?.name ?? '未找到'}').mono(),
-            if (task.isLocalScript)
-              Text('解释器: ${task.script?.shell ?? '-'}').mono(),
-            SizedBox(height: 12.h),
-            Text('说明').p(),
-            Text(task.description.isEmpty ? '—' : task.description).muted(),
-            SizedBox(height: 16.h),
-            Text('变量').p(),
-            SizedBox(height: 8.h),
-            if (task.variables.isEmpty)
-              const Text('无').muted()
-            else
-              SizedBox(
-                height: 120.h,
-                child: ListView.builder(
-                  itemCount: task.variables.length,
-                  itemBuilder: (context, i) {
-                    final v = task.variables[i];
-                    final req = v.required ? '必填' : '可选';
-                    final def = v.defaultValue.isEmpty
-                        ? '默认: (空)'
-                        : '默认: ${v.defaultValue}';
-                    return Padding(
-                      padding: EdgeInsets.symmetric(vertical: 6.h),
-                      child: Row(
-                        children: [
-                          Expanded(child: Text(v.name).mono()),
-                          SizedBox(width: 12.w),
-                          Text(req).muted(),
-                          SizedBox(width: 12.w),
-                          Text(def).muted(),
-                        ],
-                      ),
-                    );
-                  },
-                ),
-              ),
-            SizedBox(height: 16.h),
-            if (task.isLocalScript) ...[
-              Text('脚本').p(),
-              SizedBox(height: 8.h),
-              Expanded(
-                child: SingleChildScrollView(
-                  child: Text(
-                    (() {
-                      final text = task.script?.content ?? '';
-                      return text.trim().isEmpty ? '—' : text;
-                    })(),
-                  ).mono(),
-                ),
-              ),
-            ] else ...[
-            Text('文件槽位').p(),
-            SizedBox(height: 8.h),
-            Expanded(
-              child: task.fileSlots.isEmpty
-                  ? const Text('无').muted()
-                  : ListView.builder(
-                      itemCount: task.fileSlots.length,
-                      itemBuilder: (context, i) {
-                        final s = task.fileSlots[i];
-                        return Padding(
-                          padding: EdgeInsets.symmetric(vertical: 6.h),
-                          child: Row(
-                            children: [
-                              Expanded(child: Text(s.name).mono()),
-                              SizedBox(width: 12.w),
-                              Text(s.required ? '必选' : '可选').muted(),
-                              SizedBox(width: 12.w),
-                              Text(s.multiple ? '多文件' : '单文件').muted(),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
-            ),
-            ],
-          ],
+          ),
         ),
-      ),
+      ],
     );
   }
 }
@@ -671,12 +798,7 @@ class _TaskEditDialogState extends State<_TaskEditDialog> {
     }
 
     setState(() {
-      _vars.add(
-        r.copyWith(
-          name: name,
-          description: r.description.trim(),
-        ),
-      );
+      _vars.add(r.copyWith(name: name, description: r.description.trim()));
     });
   }
 
@@ -747,157 +869,168 @@ class _TaskEditDialogState extends State<_TaskEditDialog> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-            m.TextField(
-              controller: _name,
-              decoration: const m.InputDecoration(labelText: '名称'),
-            ),
-            SizedBox(height: 12.h),
-            m.TextField(
-              controller: _desc,
-              decoration: const m.InputDecoration(labelText: '描述（可选）'),
-            ),
-            SizedBox(height: 12.h),
-            m.DropdownButtonFormField<String>(
-              key: ValueKey(_type),
-              initialValue: _type,
-              decoration: const m.InputDecoration(labelText: '类型'),
-              items: const [
-                m.DropdownMenuItem(
-                  value: TaskType.ansiblePlaybook,
-                  child: Text('Ansible Playbook（控制端执行）'),
+                m.TextField(
+                  controller: _name,
+                  decoration: const m.InputDecoration(labelText: '名称'),
                 ),
-                m.DropdownMenuItem(
-                  value: TaskType.localScript,
-                  child: Text('脚本任务（本地执行）'),
+                SizedBox(height: 12.h),
+                m.TextField(
+                  controller: _desc,
+                  decoration: const m.InputDecoration(labelText: '描述（可选）'),
                 ),
-              ],
-              onChanged: (v) {
-                if (v == null) return;
-                setState(() {
-                  _type = v;
-                  if (_type == TaskType.localScript) {
-                    _playbookId = null;
-                    _slots.clear();
-                  }
-                  if (_type == TaskType.ansiblePlaybook &&
-                      _playbookId == null &&
-                      widget.playbooks.isNotEmpty) {
-                    _playbookId = widget.playbooks.first.id;
-                  }
-                });
-              },
-            ),
-            SizedBox(height: 12.h),
-            if (widget.playbooks.isEmpty && _type == TaskType.ansiblePlaybook)
-              Align(
-                alignment: Alignment.centerLeft,
-                child: const Text('暂无 Playbook，请先到 Playbook 页面创建。').muted(),
-              )
-            else if (_type == TaskType.ansiblePlaybook)
-              m.DropdownButtonFormField<String>(
-                key: ValueKey(_playbookId),
-                initialValue: _playbookId,
-                decoration: const m.InputDecoration(labelText: '绑定 Playbook'),
-                items: widget.playbooks
-                    .map(
-                      (p) =>
-                          m.DropdownMenuItem(value: p.id, child: Text(p.name)),
-                    )
-                    .toList(),
-                onChanged: (v) => setState(() => _playbookId = v),
-              ),
-            if (_type == TaskType.localScript) ...[
-              SizedBox(height: 12.h),
-              m.DropdownButtonFormField<String>(
-                key: ValueKey(_shell),
-                initialValue: _shell,
-                decoration: const m.InputDecoration(labelText: '解释器'),
-                items: const [
-                  m.DropdownMenuItem(value: 'bash', child: Text('bash')),
-                  m.DropdownMenuItem(value: 'sh', child: Text('sh')),
+                SizedBox(height: 12.h),
+                m.DropdownButtonFormField<String>(
+                  key: ValueKey(_type),
+                  initialValue: _type,
+                  decoration: const m.InputDecoration(labelText: '类型'),
+                  items: const [
+                    m.DropdownMenuItem(
+                      value: TaskType.ansiblePlaybook,
+                      child: Text('Ansible Playbook（控制端执行）'),
+                    ),
+                    m.DropdownMenuItem(
+                      value: TaskType.localScript,
+                      child: Text('脚本任务（本地执行）'),
+                    ),
+                  ],
+                  onChanged: (v) {
+                    if (v == null) return;
+                    setState(() {
+                      _type = v;
+                      if (_type == TaskType.localScript) {
+                        _playbookId = null;
+                        _slots.clear();
+                      }
+                      if (_type == TaskType.ansiblePlaybook &&
+                          _playbookId == null &&
+                          widget.playbooks.isNotEmpty) {
+                        _playbookId = widget.playbooks.first.id;
+                      }
+                    });
+                  },
+                ),
+                SizedBox(height: 12.h),
+                if (widget.playbooks.isEmpty &&
+                    _type == TaskType.ansiblePlaybook)
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: const Text('暂无 Playbook，请先到 Playbook 页面创建。').muted(),
+                  )
+                else if (_type == TaskType.ansiblePlaybook)
+                  m.DropdownButtonFormField<String>(
+                    key: ValueKey(_playbookId),
+                    initialValue: _playbookId,
+                    decoration: const m.InputDecoration(
+                      labelText: '绑定 Playbook',
+                    ),
+                    items: widget.playbooks
+                        .map(
+                          (p) => m.DropdownMenuItem(
+                            value: p.id,
+                            child: Text(p.name),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (v) => setState(() => _playbookId = v),
+                  ),
+                if (_type == TaskType.localScript) ...[
+                  SizedBox(height: 12.h),
+                  m.DropdownButtonFormField<String>(
+                    key: ValueKey(_shell),
+                    initialValue: _shell,
+                    decoration: const m.InputDecoration(labelText: '解释器'),
+                    items: const [
+                      m.DropdownMenuItem(value: 'bash', child: Text('bash')),
+                      m.DropdownMenuItem(value: 'sh', child: Text('sh')),
+                    ],
+                    onChanged: (v) => setState(() => _shell = v ?? _shell),
+                  ),
+                  SizedBox(height: 12.h),
+                  m.TextField(
+                    controller: _script,
+                    maxLines: 10,
+                    decoration: const m.InputDecoration(
+                      labelText: '脚本内容',
+                      hintText:
+                          '变量会以环境变量形式注入：SD_<var_name>；同时提供 SD_STAGE_DIR/SD_TASK_VARS_JSON 等。',
+                    ),
+                  ),
                 ],
-                onChanged: (v) => setState(() => _shell = v ?? _shell),
-              ),
-              SizedBox(height: 12.h),
-              m.TextField(
-                controller: _script,
-                maxLines: 10,
-                decoration: const m.InputDecoration(
-                  labelText: '脚本内容',
-                  hintText:
-                      '变量会以环境变量形式注入：SD_<var_name>；同时提供 SD_STAGE_DIR/SD_TASK_VARS_JSON 等。',
+                SizedBox(height: 16.h),
+                Row(
+                  children: [
+                    const Expanded(child: Text('变量')),
+                    OutlineButton(
+                      onPressed: _addVar,
+                      child: const Text('新增变量'),
+                    ),
+                  ],
                 ),
-              ),
-            ],
-            SizedBox(height: 16.h),
-            Row(
-              children: [
-                const Expanded(child: Text('变量')),
-                OutlineButton(onPressed: _addVar, child: const Text('新增变量')),
+                SizedBox(height: 8.h),
+                SizedBox(
+                  height: 140.h,
+                  child: _vars.isEmpty
+                      ? const Center(child: Text('无'))
+                      : m.ListView.builder(
+                          itemCount: _vars.length,
+                          itemBuilder: (context, i) {
+                            final v = _vars[i];
+                            final req = v.required ? '必填' : '可选';
+                            final def = v.defaultValue.isEmpty
+                                ? '默认: (空)'
+                                : '默认: ${v.defaultValue}';
+                            return m.ListTile(
+                              title: Text(v.name).mono(),
+                              subtitle: Text('$req · $def').muted(),
+                              trailing: GhostButton(
+                                density: ButtonDensity.icon,
+                                onPressed: () =>
+                                    setState(() => _vars.removeAt(i)),
+                                child: const Icon(Icons.close),
+                              ),
+                            );
+                          },
+                        ),
+                ),
+                SizedBox(height: 16.h),
+                Row(
+                  children: [
+                    const Expanded(child: Text('文件槽位')),
+                    OutlineButton(
+                      onPressed: _type == TaskType.ansiblePlaybook
+                          ? _addSlot
+                          : null,
+                      child: const Text('新增槽位'),
+                    ),
+                  ],
+                ),
+                SizedBox(height: 8.h),
+                SizedBox(
+                  height: 160.h,
+                  child: _slots.isEmpty
+                      ? const Center(child: Text('无'))
+                      : m.ListView.builder(
+                          itemCount: _slots.length,
+                          itemBuilder: (context, i) {
+                            final s = _slots[i];
+                            return m.ListTile(
+                              title: Text(s.name),
+                              subtitle: Text(
+                                '${s.required ? '必选' : '可选'} · ${s.multiple ? '多文件' : '单文件'}',
+                              ).muted(),
+                              trailing: GhostButton(
+                                density: ButtonDensity.icon,
+                                onPressed: _type == TaskType.ansiblePlaybook
+                                    ? () => setState(() => _slots.removeAt(i))
+                                    : null,
+                                child: const Icon(Icons.close),
+                              ),
+                            );
+                          },
+                        ),
+                ),
               ],
             ),
-            SizedBox(height: 8.h),
-            SizedBox(
-              height: 140.h,
-              child: _vars.isEmpty
-                  ? const Center(child: Text('无'))
-                  : m.ListView.builder(
-                      itemCount: _vars.length,
-                      itemBuilder: (context, i) {
-                        final v = _vars[i];
-                        final req = v.required ? '必填' : '可选';
-                        final def = v.defaultValue.isEmpty
-                            ? '默认: (空)'
-                            : '默认: ${v.defaultValue}';
-                        return m.ListTile(
-                          title: Text(v.name).mono(),
-                          subtitle: Text('$req · $def').muted(),
-                          trailing: GhostButton(
-                            density: ButtonDensity.icon,
-                            onPressed: () => setState(() => _vars.removeAt(i)),
-                            child: const Icon(Icons.close),
-                          ),
-                        );
-                      },
-                    ),
-            ),
-            SizedBox(height: 16.h),
-            Row(
-              children: [
-                const Expanded(child: Text('文件槽位')),
-                OutlineButton(
-                  onPressed: _type == TaskType.ansiblePlaybook ? _addSlot : null,
-                  child: const Text('新增槽位'),
-                ),
-              ],
-            ),
-            SizedBox(height: 8.h),
-            SizedBox(
-              height: 160.h,
-              child: _slots.isEmpty
-                  ? const Center(child: Text('无'))
-                  : m.ListView.builder(
-                      itemCount: _slots.length,
-                      itemBuilder: (context, i) {
-                        final s = _slots[i];
-                        return m.ListTile(
-                          title: Text(s.name),
-                          subtitle: Text(
-                            '${s.required ? '必选' : '可选'} · ${s.multiple ? '多文件' : '单文件'}',
-                          ).muted(),
-                          trailing: GhostButton(
-                            density: ButtonDensity.icon,
-                            onPressed: _type == TaskType.ansiblePlaybook
-                                ? () => setState(() => _slots.removeAt(i))
-                                : null,
-                            child: const Icon(Icons.close),
-                          ),
-                        );
-                      },
-                    ),
-            ),
-          ],
-        ),
           ),
         ),
       ),
@@ -908,38 +1041,38 @@ class _TaskEditDialogState extends State<_TaskEditDialog> {
         ),
         PrimaryButton(
           onPressed: () async {
-                  final name = _name.text.trim();
-                  try {
-                    _validateTaskOrThrow(
-                      name: name,
-                      type: _type,
-                      playbookId: _playbookId,
-                    );
-                    if (!context.mounted) return;
-                    Navigator.of(context).pop(
-                      Task(
-                        id: initial?.id ?? AppServices.I.uuid.v4(),
-                        name: name,
-                        description: _desc.text.trim(),
-                        type: _type,
-                        playbookId: _type == TaskType.ansiblePlaybook
-                            ? _playbookId
-                            : null,
-                        script: _type == TaskType.localScript
-                            ? TaskScript(shell: _shell, content: _script.text)
-                            : null,
-                        fileSlots: _type == TaskType.ansiblePlaybook
-                            ? List<FileSlot>.from(_slots)
-                            : const <FileSlot>[],
-                        variables: List<TaskVariable>.from(_vars),
-                      ),
-                    );
-                  } on AppException catch (e) {
-                    if (context.mounted) {
-                      await showAppErrorDialog(context, e);
-                    }
-                  }
-                },
+            final name = _name.text.trim();
+            try {
+              _validateTaskOrThrow(
+                name: name,
+                type: _type,
+                playbookId: _playbookId,
+              );
+              if (!context.mounted) return;
+              Navigator.of(context).pop(
+                Task(
+                  id: initial?.id ?? AppServices.I.uuid.v4(),
+                  name: name,
+                  description: _desc.text.trim(),
+                  type: _type,
+                  playbookId: _type == TaskType.ansiblePlaybook
+                      ? _playbookId
+                      : null,
+                  script: _type == TaskType.localScript
+                      ? TaskScript(shell: _shell, content: _script.text)
+                      : null,
+                  fileSlots: _type == TaskType.ansiblePlaybook
+                      ? List<FileSlot>.from(_slots)
+                      : const <FileSlot>[],
+                  variables: List<TaskVariable>.from(_vars),
+                ),
+              );
+            } on AppException catch (e) {
+              if (context.mounted) {
+                await showAppErrorDialog(context, e);
+              }
+            }
+          },
           child: const Text('保存'),
         ),
       ],
@@ -982,31 +1115,31 @@ class _TaskVarDialogState extends State<_TaskVarDialog> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-            m.TextField(
-              controller: _name,
-              decoration: const m.InputDecoration(
-                labelText: '变量名',
-                hintText: '例如：version / package_name / env',
-              ),
+                m.TextField(
+                  controller: _name,
+                  decoration: const m.InputDecoration(
+                    labelText: '变量名',
+                    hintText: '例如：version / package_name / env',
+                  ),
+                ),
+                SizedBox(height: 8.h),
+                m.TextField(
+                  controller: _def,
+                  decoration: const m.InputDecoration(labelText: '默认值（可选）'),
+                ),
+                SizedBox(height: 8.h),
+                m.TextField(
+                  controller: _desc,
+                  decoration: const m.InputDecoration(labelText: '描述（可选）'),
+                ),
+                SizedBox(height: 8.h),
+                m.CheckboxListTile(
+                  value: _required,
+                  onChanged: (v) => setState(() => _required = v ?? _required),
+                  title: const Text('必填'),
+                ),
+              ],
             ),
-            SizedBox(height: 8.h),
-            m.TextField(
-              controller: _def,
-              decoration: const m.InputDecoration(labelText: '默认值（可选）'),
-            ),
-            SizedBox(height: 8.h),
-            m.TextField(
-              controller: _desc,
-              decoration: const m.InputDecoration(labelText: '描述（可选）'),
-            ),
-            SizedBox(height: 8.h),
-            m.CheckboxListTile(
-              value: _required,
-              onChanged: (v) => setState(() => _required = v ?? _required),
-              title: const Text('必填'),
-            ),
-          ],
-        ),
           ),
         ),
       ),

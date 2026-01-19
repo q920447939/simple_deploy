@@ -9,144 +9,221 @@ import '../../../services/core/app_error.dart';
 import '../../controllers/servers_controller.dart';
 import '../../widgets/app_error_dialog.dart';
 import '../../widgets/project_guard.dart';
-import '../../utils/layout_metrics.dart';
 
 class ServersPage extends StatelessWidget {
   const ServersPage({super.key});
 
   @override
   Widget build(BuildContext context) {
+    // Inject controller
     final controller = Get.put(ServersController());
+
+    return ProjectGuard(
+      child: Scaffold(
+        child: Row(
+          children: [
+            // Sidebar: 320px fixed
+            SizedBox(width: 320.w, child: const _ServerSidebar()),
+            const VerticalDivider(width: 1),
+            // Main Content
+            Expanded(
+              child: Obx(() {
+                final s = controller.selected;
+                if (s == null) {
+                  return const Center(child: Text('请选择一个服务器查看详情'));
+                }
+                return _ServerDetail(server: s);
+              }),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ServerSidebar extends StatelessWidget {
+  const _ServerSidebar();
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = Get.find<ServersController>();
 
     Widget toggle(String type, String label) {
       return Obx(() {
         final selected = controller.filterType.value == type;
-        return selected
-            ? SecondaryButton(
-                onPressed: () => controller.filterType.value = type,
-                child: Text(label),
-              )
-            : OutlineButton(
-                onPressed: () => controller.filterType.value = type,
-                child: Text(label),
-              );
+        return Expanded(
+          child: GestureDetector(
+            onTap: () => controller.filterType.value = type,
+            behavior: HitTestBehavior.opaque,
+            child: Container(
+              alignment: Alignment.center,
+              padding: EdgeInsets.symmetric(vertical: 6.h),
+              decoration: BoxDecoration(
+                color: selected
+                    ? m.Theme.of(
+                        context,
+                      ).colorScheme.primary.withValues(alpha: 0.1)
+                    : null,
+                border: Border(
+                  bottom: BorderSide(
+                    color: selected
+                        ? m.Theme.of(context).colorScheme.primary
+                        : Colors.transparent,
+                    width: 2,
+                  ),
+                ),
+              ),
+              child: Text(
+                label,
+                style: TextStyle(
+                  color: selected
+                      ? m.Theme.of(context).colorScheme.primary
+                      : m.Theme.of(context).colorScheme.onSurface,
+                  fontWeight: selected ? FontWeight.w500 : FontWeight.normal,
+                  fontSize: 13.sp,
+                ),
+              ),
+            ),
+          ),
+        );
       });
     }
 
-    return ProjectGuard(
-      child: Padding(
-        padding: EdgeInsets.all(16.r),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final leftWidth = masterDetailLeftWidth(
-              constraints,
-              min: 320,
-              max: 520,
-              ratio: 0.36,
-            );
-            return Row(
-              children: [
-                SizedBox(
-                  width: leftWidth,
-                  child: Card(
+    return Column(
+      children: [
+        // Sidebar Header
+        Container(
+          height: 50.h,
+          padding: EdgeInsets.symmetric(horizontal: 12.w),
+          decoration: BoxDecoration(
+            border: Border(
+              bottom: BorderSide(color: m.Theme.of(context).dividerColor),
+            ),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '服务器',
+                  style: m.Theme.of(context).textTheme.titleMedium,
+                ),
+              ),
+              GhostButton(
+                density: ButtonDensity.icon,
+                onPressed: () async {
+                  final created = await showDialog<Server>(
+                    context: context,
+                    builder: (context) => _ServerEditDialog(
+                      initial: null,
+                      defaultType: controller.filterType.value,
+                    ),
+                  );
+                  if (created == null) return;
+                  try {
+                    await controller.upsert(created);
+                  } on AppException catch (e) {
+                    if (context.mounted) {
+                      await showAppErrorDialog(context, e);
+                    }
+                  }
+                },
+                child: const Icon(Icons.add, size: 18),
+              ),
+            ],
+          ),
+        ),
+        // Filter Tabs
+        Container(
+          decoration: BoxDecoration(
+            border: Border(
+              bottom: BorderSide(color: m.Theme.of(context).dividerColor),
+            ),
+          ),
+          child: Row(
+            children: [
+              toggle(ServerType.control, '控制端'),
+              const SizedBox(height: 20, child: VerticalDivider(width: 1)),
+              toggle(ServerType.managed, '被控端'),
+            ],
+          ),
+        ),
+        // List
+        Expanded(
+          child: Obx(() {
+            final items = controller.filtered.toList();
+            if (items.isEmpty) {
+              return const Center(child: Text('暂无服务器'));
+            }
+            return m.ListView.separated(
+              itemCount: items.length,
+              separatorBuilder: (_, __) => const Divider(height: 1),
+              itemBuilder: (context, i) {
+                final s = items[i];
+                final selected = controller.selectedId.value == s.id;
+                return m.Material(
+                  color: selected
+                      ? m.Theme.of(
+                          context,
+                        ).colorScheme.primary.withValues(alpha: 0.05)
+                      : Colors.transparent,
+                  child: m.InkWell(
+                    onTap: () => controller.selectedId.value = s.id,
                     child: Padding(
-                      padding: EdgeInsets.all(12.r),
+                      padding: EdgeInsets.symmetric(
+                        horizontal: 12.w,
+                        vertical: 10.h,
+                      ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Row(
                             children: [
-                              Expanded(child: Text('服务器').p()),
-                              PrimaryButton(
-                                density: ButtonDensity.icon,
-                                onPressed: () async {
-                                  final created = await showDialog<Server>(
-                                    context: context,
-                                    builder: (context) => _ServerEditDialog(
-                                      initial: null,
-                                      defaultType: controller.filterType.value,
-                                    ),
-                                  );
-                                  if (created == null) return;
-                                  try {
-                                    await controller.upsert(created);
-                                  } on AppException catch (e) {
-                                    if (context.mounted) {
-                                      await showAppErrorDialog(context, e);
-                                    }
-                                  }
-                                },
-                                child: const Icon(Icons.add),
+                              Expanded(
+                                child: Text(
+                                  s.name,
+                                  style: m.Theme.of(context)
+                                      .textTheme
+                                      .bodyMedium
+                                      ?.copyWith(
+                                        fontWeight: FontWeight.w500,
+                                        color: selected
+                                            ? m.Theme.of(
+                                                context,
+                                              ).colorScheme.primary
+                                            : null,
+                                      ),
+                                ),
                               ),
+                              if (!s.enabled)
+                                Icon(
+                                  Icons.block,
+                                  size: 14,
+                                  color: m.Theme.of(context).colorScheme.error,
+                                ),
                             ],
                           ),
-                          SizedBox(height: 12.h),
-                          Wrap(
-                            spacing: 8.w,
-                            children: [
-                              toggle(ServerType.control, '控制端'),
-                              toggle(ServerType.managed, '被控端'),
-                            ],
-                          ),
-                          SizedBox(height: 12.h),
-                          Expanded(
-                            child: Obx(() {
-                              final items = controller.filtered.toList();
-                              if (items.isEmpty) {
-                                return const Center(child: Text('暂无服务器'));
-                              }
-                              return m.ListView.builder(
-                                itemCount: items.length,
-                                itemBuilder: (context, i) {
-                                  final s = items[i];
-                                  final selected =
-                                      controller.selectedId.value == s.id;
-                                  final lastTest = _formatLastTest(s);
-                                  return m.ListTile(
-                                    selected: selected,
-                                    title: Text(s.name),
-                                    subtitle: Column(
-                                      crossAxisAlignment:
-                                          m.CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          '${s.ip}:${s.port}  ·  ${s.username}',
-                                        ).muted(),
-                                        Text(lastTest).muted(),
-                                      ],
-                                    ),
-                                    trailing: s.enabled
-                                        ? null
-                                        : const Icon(Icons.block),
-                                    onTap: () =>
-                                        controller.selectedId.value = s.id,
-                                  );
-                                },
-                              );
-                            }),
+                          SizedBox(height: 4.h),
+                          Text(
+                            '${s.ip}:${s.port}  ·  ${s.username}',
+                            style: m.Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(
+                                  color: m.Theme.of(context)
+                                      .colorScheme
+                                      .onSurface
+                                      .withValues(alpha: 0.6),
+                                ),
                           ),
                         ],
                       ),
                     ),
                   ),
-                ),
-                SizedBox(width: 16.w),
-                Expanded(
-                  child: Obx(() {
-                    final s = controller.selected;
-                    if (s == null) {
-                      return const Card(
-                        child: Center(child: Text('选择一个服务器查看详情')),
-                      );
-                    }
-                    return _ServerDetail(server: s);
-                  }),
-                ),
-              ],
+                );
+              },
             );
-          },
+          }),
         ),
-      ),
+      ],
     );
   }
 }
@@ -159,146 +236,233 @@ class _ServerDetail extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final controller = Get.find<ServersController>();
-    return Card(
-      child: Padding(
-        padding: EdgeInsets.all(16.r),
-        child: Column(
+
+    final labelStyle = TextStyle(
+      color: m.Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
+      fontSize: 13.sp,
+    );
+    final valueStyle = TextStyle(
+      fontFamily: 'GeistMono', // Ensure monospaced for values
+      fontSize: 13.sp,
+    );
+
+    Widget infoRow(String label, String value) {
+      return Padding(
+        padding: EdgeInsets.only(bottom: 8.h),
+        child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                Expanded(child: Text(server.name).h2()),
-                GhostButton(
-                  onPressed: () async {
-                    final updated = await showDialog<Server>(
-                      context: context,
-                      builder: (context) => _ServerEditDialog(
-                        initial: server,
-                        defaultType: server.type,
-                      ),
-                    );
-                    if (updated == null) return;
-                    try {
-                      await controller.upsert(updated);
-                    } on AppException catch (e) {
-                      if (context.mounted) {
-                        await showAppErrorDialog(context, e);
-                      }
-                    }
-                  },
-                  child: const Text('编辑'),
-                ),
-                SizedBox(width: 8.w),
-                DestructiveButton(
-                  onPressed: () async {
-                    final ok = await showDialog<bool>(
-                      context: context,
-                      builder: (context) => AlertDialog(
-                        title: const Text('删除服务器？'),
-                        content: Text('将删除：${server.name}'),
-                        actions: [
-                          OutlineButton(
-                            onPressed: () => Navigator.of(context).pop(false),
-                            child: const Text('取消'),
-                          ),
-                          DestructiveButton(
-                            onPressed: () => Navigator.of(context).pop(true),
-                            child: const Text('删除'),
-                          ),
-                        ],
-                      ),
-                    );
-                    if (ok != true) return;
-                    try {
-                      await controller.deleteSelected();
-                    } on AppException catch (e) {
-                      if (context.mounted) {
-                        await showAppErrorDialog(context, e);
-                      }
-                    }
-                  },
-                  child: const Text('删除'),
-                ),
-              ],
+            SizedBox(
+              width: 80.w,
+              child: Text(label, style: labelStyle),
             ),
-            SizedBox(height: 12.h),
-            Text('类型: ${server.type}').mono(),
-            SizedBox(height: 6.h),
-            Text('地址: ${server.ip}:${server.port}').mono(),
-            SizedBox(height: 6.h),
-            Text('用户名: ${server.username}').mono(),
-            SizedBox(height: 6.h),
-            Text('启用: ${server.enabled}').mono(),
-            SizedBox(height: 6.h),
-            Text('最后测试: ${_formatLastTest(server)}').mono(),
-            if ((server.lastTestMessage ?? '').trim().isNotEmpty) ...[
-              SizedBox(height: 6.h),
-              Text('测试信息: ${server.lastTestMessage}').mono(),
-            ],
-            SizedBox(height: 16.h),
-            Row(
-              children: [
-                Text('快速操作').p(),
-                SizedBox(width: 12.w),
-                Expanded(
-                  child: Obx(() {
-                    final isTesting = controller.testingId.value == server.id;
-                    final mode = controller.testingMode.value;
+            Expanded(child: SelectableText(value, style: valueStyle)),
+          ],
+        ),
+      );
+    }
 
-                    final label = server.type == ServerType.control
-                        ? '控制端连接测试（uname -a）'
-                        : 'SSH 登录测试（uname -a）';
-
-                    Widget progressLabel(String text) {
-                      return Row(
-                        mainAxisSize: m.MainAxisSize.min,
-                        children: [
-                          SizedBox(
-                            width: 14.w,
-                            height: 14.w,
-                            child: const m.CircularProgressIndicator(
-                              strokeWidth: 2,
-                            ),
-                          ),
-                          SizedBox(width: 8.w),
-                          Text(text),
-                        ],
-                      );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // Detail Header
+        Container(
+          height: 50.h,
+          padding: EdgeInsets.symmetric(horizontal: 24.w),
+          decoration: BoxDecoration(
+            border: Border(
+              bottom: BorderSide(color: m.Theme.of(context).dividerColor),
+            ),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  server.name,
+                  style: m.Theme.of(context).textTheme.titleLarge,
+                ),
+              ),
+              GhostButton(
+                density: ButtonDensity.icon,
+                onPressed: () async {
+                  final updated = await showDialog<Server>(
+                    context: context,
+                    builder: (context) => _ServerEditDialog(
+                      initial: server,
+                      defaultType: server.type,
+                    ),
+                  );
+                  if (updated == null) return;
+                  try {
+                    await controller.upsert(updated);
+                  } on AppException catch (e) {
+                    if (context.mounted) {
+                      await showAppErrorDialog(context, e);
                     }
+                  }
+                },
+                child: const Icon(Icons.edit, size: 16),
+              ),
+              SizedBox(width: 8.w),
+              DestructiveButton(
+                density: ButtonDensity.icon,
+                onPressed: () async {
+                  final ok = await showDialog<bool>(
+                    context: context,
+                    builder: (context) => AlertDialog(
+                      title: const Text('删除服务器？'),
+                      content: Text('将删除：${server.name}'),
+                      actions: [
+                        OutlineButton(
+                          onPressed: () => Navigator.of(context).pop(false),
+                          child: const Text('取消'),
+                        ),
+                        DestructiveButton(
+                          onPressed: () => Navigator.of(context).pop(true),
+                          child: const Text('删除'),
+                        ),
+                      ],
+                    ),
+                  );
+                  if (ok != true) return;
+                  try {
+                    await controller.deleteSelected();
+                  } on AppException catch (e) {
+                    if (context.mounted) {
+                      await showAppErrorDialog(context, e);
+                    }
+                  }
+                },
+                child: const Icon(Icons.delete_outline, size: 16),
+              ),
+            ],
+          ),
+        ),
+        // Content
+        Expanded(
+          child: m.SingleChildScrollView(
+            padding: EdgeInsets.all(24.r),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('基本信息', style: m.Theme.of(context).textTheme.titleMedium),
+                SizedBox(height: 16.h),
+                infoRow('ID', server.id),
+                infoRow('类型', server.type),
+                infoRow('地址', '${server.ip}:${server.port}'),
+                infoRow('用户名', server.username),
+                infoRow('启用状态', server.enabled ? '已启用' : '已禁用'),
+                infoRow('Last Test', _formatLastTest(server)),
+                if ((server.lastTestMessage ?? '').trim().isNotEmpty)
+                  infoRow('Test Msg', server.lastTestMessage!),
 
-                    return Wrap(
-                      spacing: 8.w,
-                      runSpacing: 8.h,
-                      children: [
+                SizedBox(height: 32.h),
+                Text('快速操作', style: m.Theme.of(context).textTheme.titleMedium),
+                SizedBox(height: 16.h),
+                Text('注意：v1 简单部署工具明文保存密码，仅适用于内网/单人/受控环境。', style: labelStyle),
+                SizedBox(height: 16.h),
+                Obx(() {
+                  final isTesting = controller.testingId.value == server.id;
+                  final mode = controller.testingMode.value;
+
+                  final label = server.type == ServerType.control
+                      ? '控制端连接测试'
+                      : 'SSH 登录测试';
+
+                  Widget spinner() => const SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: m.CircularProgressIndicator(strokeWidth: 2),
+                  );
+
+                  return Wrap(
+                    spacing: 12.w,
+                    runSpacing: 12.h,
+                    children: [
+                      OutlineButton(
+                        onPressed: isTesting
+                            ? null
+                            : () async {
+                                try {
+                                  final r = await controller
+                                      .testSshConnectivity(server);
+                                  if (!context.mounted) return;
+                                  await showDialog<void>(
+                                    context: context,
+                                    builder: (context) => AlertDialog(
+                                      title: Text(
+                                        r.exitCode == 0 ? '连接成功' : '连接失败',
+                                      ),
+                                      content: ConstrainedBox(
+                                        constraints: BoxConstraints(
+                                          maxHeight: 0.6.sh,
+                                          maxWidth: 640.w,
+                                        ),
+                                        child: m.SingleChildScrollView(
+                                          child: SelectableText(
+                                            r.exitCode == 0
+                                                ? (r.stdout.trim().isEmpty
+                                                      ? '（执行成功，无输出）'
+                                                      : r.stdout.trim())
+                                                : (r.stderr.trim().isEmpty
+                                                      ? r.stdout.trim()
+                                                      : r.stderr.trim()),
+                                            style: valueStyle,
+                                          ),
+                                        ),
+                                      ),
+                                      actions: [
+                                        PrimaryButton(
+                                          onPressed: () =>
+                                              Navigator.of(context).pop(),
+                                          child: const Text('知道了'),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                } on AppException catch (e) {
+                                  if (context.mounted) {
+                                    await showAppErrorDialog(context, e);
+                                  }
+                                }
+                              },
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (isTesting && mode == 'ssh') ...[
+                              spinner(),
+                              const SizedBox(width: 8),
+                            ] else
+                              const Icon(Icons.terminal, size: 16),
+                            if (!isTesting || mode != 'ssh')
+                              const SizedBox(width: 8),
+                            Text(isTesting && mode == 'ssh' ? '测试中...' : label),
+                          ],
+                        ),
+                      ),
+                      if (server.type == ServerType.control)
                         OutlineButton(
                           onPressed: isTesting
                               ? null
                               : () async {
                                   try {
                                     final r = await controller
-                                        .testSshConnectivity(server);
+                                        .selfCheckControlEnvironment(server);
                                     if (!context.mounted) return;
                                     await showDialog<void>(
                                       context: context,
                                       builder: (context) => AlertDialog(
-                                        title: Text(
-                                          r.exitCode == 0 ? '连接成功' : '连接失败',
-                                        ),
+                                        title: Text(r.ok ? '环境自检通过' : '环境自检失败'),
                                         content: ConstrainedBox(
                                           constraints: BoxConstraints(
                                             maxHeight: 0.6.sh,
-                                            maxWidth: 640.w,
+                                            maxWidth: 760.w,
                                           ),
                                           child: m.SingleChildScrollView(
-                                            child: Text(
-                                              r.exitCode == 0
-                                                  ? (r.stdout.trim().isEmpty
-                                                        ? '（执行成功，无输出）'
-                                                        : r.stdout.trim())
-                                                  : (r.stderr.trim().isEmpty
-                                                        ? r.stdout.trim()
-                                                        : r.stderr.trim()),
-                                            ).mono(),
+                                            child: SelectableText(
+                                              r.details,
+                                              style: valueStyle,
+                                            ),
                                           ),
                                         ),
                                         actions: [
@@ -316,64 +480,32 @@ class _ServerDetail extends StatelessWidget {
                                     }
                                   }
                                 },
-                          child: (isTesting && mode == 'ssh')
-                              ? progressLabel('测试中...')
-                              : Text(label),
-                        ),
-                        if (server.type == ServerType.control)
-                          OutlineButton(
-                            onPressed: isTesting
-                                ? null
-                                : () async {
-                                    try {
-                                      final r = await controller
-                                          .selfCheckControlEnvironment(server);
-                                      if (!context.mounted) return;
-                                      await showDialog<void>(
-                                        context: context,
-                                        builder: (context) => AlertDialog(
-                                          title: Text(
-                                            r.ok ? '环境自检通过' : '环境自检失败',
-                                          ),
-                                          content: ConstrainedBox(
-                                            constraints: BoxConstraints(
-                                              maxHeight: 0.6.sh,
-                                              maxWidth: 760.w,
-                                            ),
-                                            child: m.SingleChildScrollView(
-                                              child: Text(r.details).mono(),
-                                            ),
-                                          ),
-                                          actions: [
-                                            PrimaryButton(
-                                              onPressed: () =>
-                                                  Navigator.of(context).pop(),
-                                              child: const Text('知道了'),
-                                            ),
-                                          ],
-                                        ),
-                                      );
-                                    } on AppException catch (e) {
-                                      if (context.mounted) {
-                                        await showAppErrorDialog(context, e);
-                                      }
-                                    }
-                                  },
-                            child: (isTesting && mode == 'selfcheck')
-                                ? progressLabel('自检中...')
-                                : const Text('环境自检'),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (isTesting && mode == 'selfcheck') ...[
+                                spinner(),
+                                const SizedBox(width: 8),
+                              ] else
+                                const Icon(Icons.checklist, size: 16),
+                              if (!isTesting || mode != 'selfcheck')
+                                const SizedBox(width: 8),
+                              Text(
+                                isTesting && mode == 'selfcheck'
+                                    ? '自检中...'
+                                    : '环境自检',
+                              ),
+                            ],
                           ),
-                      ],
-                    );
-                  }),
-                ),
+                        ),
+                    ],
+                  );
+                }),
               ],
             ),
-            SizedBox(height: 8.h),
-            Text('注意：v1 明文保存密码，仅适用于内网/单人/受控环境。').muted(),
-          ],
+          ),
         ),
-      ),
+      ],
     );
   }
 }
