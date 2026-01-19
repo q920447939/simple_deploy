@@ -33,7 +33,7 @@ class BatchesController extends GetxController {
 
   final RxMap<String, Run> lastRunByBatchId = <String, Run>{}.obs;
 
-  final RxString currentLog = ''.obs;
+  final RxList<String> currentLogLines = <String>[].obs;
   final RxInt logMaxLines = 2000.obs;
   final RxnInt currentLogFileSize = RxnInt();
 
@@ -84,7 +84,7 @@ class BatchesController extends GetxController {
       runs.clear();
       selectedBatchId.value = null;
       selectedRunId.value = null;
-      currentLog.value = '';
+      currentLogLines.clear();
       lastRunByBatchId.clear();
       return;
     }
@@ -123,7 +123,7 @@ class BatchesController extends GetxController {
       runs.clear();
       selectedRunId.value = null;
       selectedTaskIndex.value = 0;
-      currentLog.value = '';
+      currentLogLines.clear();
       return;
     }
     final list = await AppServices.I.runsStore(pid).listByBatch(batch.id);
@@ -249,7 +249,7 @@ class BatchesController extends GetxController {
     final pid = projectId;
     final run = selectedRun;
     if (pid == null || run == null) {
-      currentLog.value = '';
+      currentLogLines.clear();
       currentLogFileSize.value = null;
       return;
     }
@@ -269,11 +269,12 @@ class BatchesController extends GetxController {
       return;
     }
 
-    currentLog.value = await _readTailLines(
+    final raw = await _readTailLines(
       file,
       maxLines: currentMaxLines,
       maxBytes: _maxBytesForLines(currentMaxLines),
     );
+    currentLogLines.assignAll(const LineSplitter().convert(raw));
 
     _lastRenderedRunId = currentRunId;
     _lastRenderedTaskIndex = currentTaskIndex;
@@ -283,6 +284,11 @@ class BatchesController extends GetxController {
 
   Future<void> loadMoreLog() async {
     logMaxLines.value = (logMaxLines.value + 2000).clamp(2000, 20000);
+    await refreshLog();
+  }
+
+  Future<void> loadFullLog() async {
+    logMaxLines.value = 1000000; // Large enough for most cases
     await refreshLog();
   }
 
@@ -320,10 +326,11 @@ class BatchesController extends GetxController {
   }
 
   static int _maxBytesForLines(int maxLines) {
-    // 粗略估算：每行平均 512B，且至少读取 64KB；上限 8MB 避免 UI/内存压力。
+    // 粗略估算：每行平均 512B，且至少读取 64KB；上限 128MB (was 8MB)
+    // Supports full logs better.
     final bytes = maxLines * 512;
     if (bytes < 64 * 1024) return 64 * 1024;
-    if (bytes > 8 * 1024 * 1024) return 8 * 1024 * 1024;
+    if (bytes > 128 * 1024 * 1024) return 128 * 1024 * 1024;
     return bytes;
   }
 
@@ -338,6 +345,14 @@ class BatchesController extends GetxController {
     final raf = await file.open();
     try {
       final len = await raf.length();
+
+      // If requesting full log or log is small enough, read from start
+      if (maxLines >= 100000 || len < maxBytes) {
+        await raf.setPosition(0);
+        final all = await raf.read(len);
+        return utf8.decode(all, allowMalformed: true);
+      }
+
       var pos = len;
 
       final chunks = <List<int>>[];
@@ -345,7 +360,7 @@ class BatchesController extends GetxController {
       var newlines = 0;
 
       while (pos > 0 && bytesRead < maxBytes && newlines <= maxLines) {
-        final chunkSize = (pos >= 16 * 1024) ? 16 * 1024 : pos.toInt();
+        final chunkSize = (pos >= 64 * 1024) ? 64 * 1024 : pos.toInt();
         pos -= chunkSize;
         await raf.setPosition(pos);
         final chunk = await raf.read(chunkSize);
@@ -429,7 +444,9 @@ class BatchesController extends GetxController {
     final pid = projectId;
     if (pid == null) return null;
     final pp = AppServices.I.projectPaths(pid);
-    final raw = await AtomicFile.readJsonOrNull(pp.batchLastInputsFile(batchId));
+    final raw = await AtomicFile.readJsonOrNull(
+      pp.batchLastInputsFile(batchId),
+    );
     if (raw is Map) {
       final parsed = RunInputs.fromJson(raw.cast<String, Object?>());
       if (parsed.fileInputs.isNotEmpty || parsed.vars.isNotEmpty) {
@@ -440,13 +457,14 @@ class BatchesController extends GetxController {
     // Legacy: only file inputs.
     final legacy =
         await AtomicFile.readJsonOrNull(pp.batchLastFileInputsFile(batchId)) ??
-            await AtomicFile.readJsonOrNull(
-              pp.batchLastFileInputsLegacyFile(batchId),
-            );
+        await AtomicFile.readJsonOrNull(
+          pp.batchLastFileInputsLegacyFile(batchId),
+        );
     if (legacy is! Map) return null;
-    final parsed = RunInputs.fromJson(
-      {'file_inputs': legacy, 'vars': const {}},
-    );
+    final parsed = RunInputs.fromJson({
+      'file_inputs': legacy,
+      'vars': const {},
+    });
     return parsed.fileInputs.isEmpty ? null : parsed;
   }
 
@@ -454,7 +472,10 @@ class BatchesController extends GetxController {
     final pid = projectId;
     if (pid == null) return;
     final pp = AppServices.I.projectPaths(pid);
-    await AtomicFile.writeJson(pp.batchLastInputsFile(batchId), inputs.toJson());
+    await AtomicFile.writeJson(
+      pp.batchLastInputsFile(batchId),
+      inputs.toJson(),
+    );
 
     // Clean up legacy files.
     final legacyNoExt = pp.batchLastFileInputsFile(batchId);

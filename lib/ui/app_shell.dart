@@ -18,11 +18,8 @@ class AppShell extends StatelessWidget {
 
   AppShell({super.key, this.subtitle});
 
-  final NavController nav = Get.put(NavController(), permanent: true);
-  final ProjectsController projects = Get.put(
-    ProjectsController(),
-    permanent: true,
-  );
+  final NavController nav = Get.find<NavController>();
+  final ProjectsController projects = Get.find<ProjectsController>();
 
   @override
   Widget build(BuildContext context) {
