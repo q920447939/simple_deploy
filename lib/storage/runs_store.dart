@@ -72,4 +72,36 @@ class RunsStore {
       );
     }
   }
+
+  Future<void> deleteMany(List<String> runIds) async {
+    if (runIds.isEmpty) return;
+    try {
+      for (final id in runIds) {
+        final file = paths.runFile(id);
+        if (await file.exists()) {
+          await file.delete();
+        }
+        final logsDir = paths.runLogsFor(id);
+        if (await logsDir.exists()) {
+          await logsDir.delete(recursive: true);
+        }
+        final artifactsDir = paths.runArtifactsFor(id);
+        if (await artifactsDir.exists()) {
+          await artifactsDir.delete(recursive: true);
+        }
+      }
+    } on Object catch (e) {
+      logger.error(
+        'runs.delete.failed',
+        data: {'error': e.toString(), 'ids': runIds},
+      );
+      throw AppException(
+        code: AppErrorCode.storageIo,
+        title: '删除 Run 失败',
+        message: '无法删除 Run 文件或日志目录。',
+        suggestion: '检查本机磁盘权限与剩余空间。',
+        cause: e,
+      );
+    }
+  }
 }

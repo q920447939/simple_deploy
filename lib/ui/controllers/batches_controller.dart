@@ -30,6 +30,9 @@ class BatchesController extends GetxController {
   final RxList<Run> runs = <Run>[].obs;
   final RxnString selectedRunId = RxnString();
   final RxInt selectedTaskIndex = 0.obs;
+  final RxList<String> bulkSelectedRunIds = <String>[].obs;
+  final RxBool userPinnedRun = false.obs;
+  final RxBool userPinnedTask = false.obs;
 
   final RxMap<String, Run> lastRunByBatchId = <String, Run>{}.obs;
 
@@ -45,10 +48,41 @@ class BatchesController extends GetxController {
   int _lastRenderedLogMaxLines = 0;
   String? _lastRenderedRunId;
   int? _lastRenderedTaskIndex;
+  String? _lastBatchId;
 
   AppLogger get _logger => AppServices.I.logger;
 
   String? get projectId => projects.selectedId.value;
+
+  bool isRunBulkSelected(String id) => bulkSelectedRunIds.contains(id);
+
+  void setRunBulkSelected(String id, bool selected) {
+    if (selected) {
+      if (!bulkSelectedRunIds.contains(id)) {
+        bulkSelectedRunIds.add(id);
+      }
+    } else {
+      bulkSelectedRunIds.remove(id);
+    }
+  }
+
+  void clearRunBulkSelection() => bulkSelectedRunIds.clear();
+
+  void selectAllRunsForBulk() {
+    bulkSelectedRunIds.assignAll(runs.map((r) => r.id));
+  }
+
+  void userSelectRun(String runId) {
+    userPinnedRun.value = true;
+    userPinnedTask.value = false;
+    selectedRunId.value = runId;
+  }
+
+  void userSelectTask(int index) {
+    userPinnedRun.value = true;
+    userPinnedTask.value = true;
+    selectedTaskIndex.value = index;
+  }
 
   @override
   void onInit() {
@@ -84,6 +118,10 @@ class BatchesController extends GetxController {
       runs.clear();
       selectedBatchId.value = null;
       selectedRunId.value = null;
+      bulkSelectedRunIds.clear();
+      userPinnedRun.value = false;
+      userPinnedTask.value = false;
+      _lastBatchId = null;
       currentLogLines.clear();
       lastRunByBatchId.clear();
       return;
@@ -123,24 +161,53 @@ class BatchesController extends GetxController {
       runs.clear();
       selectedRunId.value = null;
       selectedTaskIndex.value = 0;
+      bulkSelectedRunIds.clear();
+      userPinnedRun.value = false;
+      userPinnedTask.value = false;
       currentLogLines.clear();
+      _lastBatchId = null;
       return;
+    }
+    if (_lastBatchId != batch.id) {
+      _lastBatchId = batch.id;
+      selectedRunId.value = null;
+      selectedTaskIndex.value = 0;
+      bulkSelectedRunIds.clear();
+      userPinnedRun.value = false;
+      userPinnedTask.value = false;
     }
     final list = await AppServices.I.runsStore(pid).listByBatch(batch.id);
     runs.assignAll(list);
+    bulkSelectedRunIds.removeWhere((id) => !list.any((r) => r.id == id));
+    if (selectedRunId.value != null &&
+        !list.any((r) => r.id == selectedRunId.value)) {
+      selectedRunId.value = null;
+      userPinnedRun.value = false;
+      userPinnedTask.value = false;
+    }
+
     if (list.isNotEmpty) {
       final latest = list.first;
-      // 运行中：始终跟随最新 Run。
-      if (latest.status == RunStatus.running) {
-        selectedRunId.value = latest.id;
-      } else {
-        selectedRunId.value ??= latest.id;
+      // 运行中：默认跟随最新 Run；若用户手动选择则保持不变。
+      if (!userPinnedRun.value) {
+        if (latest.status == RunStatus.running) {
+          selectedRunId.value = latest.id;
+        } else {
+          selectedRunId.value ??= latest.id;
+        }
       }
       lastRunByBatchId[batch.id] = latest;
+    } else {
+      selectedRunId.value = null;
+      selectedTaskIndex.value = 0;
+      userPinnedRun.value = false;
+      userPinnedTask.value = false;
+      currentLogLines.clear();
+      return;
     }
 
     final run = selectedRun;
-    if (run != null && run.taskResults.isNotEmpty) {
+    if (!userPinnedTask.value && run != null && run.taskResults.isNotEmpty) {
       if (run.status == RunStatus.running) {
         final idx = run.taskResults.indexWhere(
           (t) => t.status == TaskExecStatus.running,
@@ -477,5 +544,24 @@ class BatchesController extends GetxController {
       map[b.id] = r;
     }
     lastRunByBatchId.assignAll(map);
+  }
+
+  Future<void> deleteRuns(List<String> runIds) async {
+    final pid = projectId;
+    if (pid == null || runIds.isEmpty) return;
+    await AppServices.I.runsStore(pid).deleteMany(runIds);
+    _logger.info(
+      'runs.deleted',
+      data: {'project_id': pid, 'count': runIds.length},
+    );
+    bulkSelectedRunIds.removeWhere(runIds.contains);
+    if (runIds.contains(selectedRunId.value)) {
+      selectedRunId.value = null;
+      selectedTaskIndex.value = 0;
+      userPinnedRun.value = false;
+      userPinnedTask.value = false;
+      _resetLogView();
+    }
+    await loadRuns();
   }
 }

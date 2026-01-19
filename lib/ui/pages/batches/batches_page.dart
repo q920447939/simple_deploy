@@ -327,7 +327,7 @@ class _HorizontalTaskProgressBar extends StatelessWidget {
                   };
 
                   return GestureDetector(
-                    onTap: () => controller.selectedTaskIndex.value = index,
+                    onTap: () => controller.userSelectTask(index),
                     child: Container(
                       padding: EdgeInsets.symmetric(horizontal: 8.r),
                       decoration: BoxDecoration(
@@ -879,50 +879,133 @@ class _RunHistoryView extends StatelessWidget {
   Widget build(BuildContext context) {
     return Obx(() {
       final runs = controller.runs;
+      final selectedCount = controller.bulkSelectedRunIds.length;
       if (runs.isEmpty) {
         return const Center(child: Text('暂无执行记录'));
       }
-      return ListView.builder(
-        padding: EdgeInsets.all(12.r),
-        itemCount: runs.length,
-        itemBuilder: (context, index) {
-          final r = runs[index];
-          final isSelected = controller.selectedRunId.value == r.id;
-          return GestureDetector(
-            onTap: () => controller.selectedRunId.value = r.id,
-            child: Container(
-              margin: EdgeInsets.only(bottom: 4.h),
-              padding: EdgeInsets.all(8.r),
-              decoration: BoxDecoration(
-                color: isSelected
-                    ? Theme.of(context).colorScheme.muted
-                    : Colors.transparent,
-                borderRadius: BorderRadius.circular(4),
-                border: Border.all(
-                  color: isSelected
-                      ? Theme.of(context).colorScheme.border
-                      : Colors.transparent,
-                ),
-              ),
-              child: Row(
-                children: [
-                  Icon(
-                    _runStatusIcon(r.status),
-                    size: 14,
-                    color: _runStatusColor(r.status),
-                  ),
-                  SizedBox(width: 8.w),
-                  Expanded(
-                    child: Text(
-                      formatDateTime(r.startedAt),
-                      style: const TextStyle(fontFamily: 'GeistMono'),
-                    ),
-                  ),
-                ],
+      return Column(
+        children: [
+          Container(
+            height: 40.h,
+            padding: EdgeInsets.symmetric(horizontal: 12.w),
+            decoration: BoxDecoration(
+              border: Border(
+                bottom: BorderSide(color: Theme.of(context).colorScheme.border),
               ),
             ),
-          );
-        },
+            child: Row(
+              children: [
+                Text('已选 $selectedCount').muted(),
+                const Spacer(),
+                GhostButton(
+                  density: ButtonDensity.icon,
+                  onPressed: runs.isEmpty
+                      ? null
+                      : controller.selectAllRunsForBulk,
+                  child: const Icon(Icons.select_all, size: 16),
+                ),
+                SizedBox(width: 4.w),
+                GhostButton(
+                  density: ButtonDensity.icon,
+                  onPressed: selectedCount == 0
+                      ? null
+                      : controller.clearRunBulkSelection,
+                  child: const Icon(Icons.clear_all, size: 16),
+                ),
+                SizedBox(width: 4.w),
+                GhostButton(
+                  density: ButtonDensity.icon,
+                  onPressed: selectedCount == 0
+                      ? null
+                      : () async {
+                          final ok = await showDialog<bool>(
+                            context: context,
+                            builder: (context) =>
+                                _BulkDeleteRunsDialog(count: selectedCount),
+                          );
+                          if (ok != true) return;
+                          try {
+                            final ids = controller.bulkSelectedRunIds.toList(
+                              growable: false,
+                            );
+                            await controller.deleteRuns(ids);
+                          } on AppException catch (e) {
+                            if (context.mounted) {
+                              await showAppErrorDialog(context, e);
+                            }
+                          }
+                        },
+                  child: Icon(
+                    Icons.delete_outline,
+                    size: 16,
+                    color: selectedCount == 0 ? null : m.Colors.red,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: ListView.builder(
+              padding: EdgeInsets.all(12.r),
+              itemCount: runs.length,
+              itemBuilder: (context, index) {
+                final r = runs[index];
+                final isSelected = controller.selectedRunId.value == r.id;
+                final checked = controller.isRunBulkSelected(r.id);
+                return Container(
+                  margin: EdgeInsets.only(bottom: 4.h),
+                  padding: EdgeInsets.all(8.r),
+                  decoration: BoxDecoration(
+                    color: isSelected
+                        ? Theme.of(context).colorScheme.muted
+                        : Colors.transparent,
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(
+                      color: isSelected
+                          ? Theme.of(context).colorScheme.border
+                          : Colors.transparent,
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      m.Checkbox(
+                        value: checked,
+                        onChanged: (v) =>
+                            controller.setRunBulkSelected(r.id, v == true),
+                        materialTapTargetSize:
+                            m.MaterialTapTargetSize.shrinkWrap,
+                      ),
+                      Expanded(
+                        child: GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: () => controller.userSelectRun(r.id),
+                          child: Row(
+                            children: [
+                              Icon(
+                                _runStatusIcon(r.status),
+                                size: 14,
+                                color: _runStatusColor(r.status),
+                              ),
+                              SizedBox(width: 8.w),
+                              Expanded(
+                                child: Text(
+                                  formatDateTime(r.startedAt),
+                                  style: const TextStyle(
+                                    fontFamily: 'GeistMono',
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
       );
     });
   }
@@ -1137,6 +1220,62 @@ class _BatchLogAreaState extends State<_BatchLogArea> {
 // -----------------------------------------------------------------------------
 // Existing Helper Functions and Dialogs (Preserved)
 // -----------------------------------------------------------------------------
+
+class _BulkDeleteRunsDialog extends StatefulWidget {
+  final int count;
+
+  const _BulkDeleteRunsDialog({required this.count});
+
+  @override
+  State<_BulkDeleteRunsDialog> createState() => _BulkDeleteRunsDialogState();
+}
+
+class _BulkDeleteRunsDialogState extends State<_BulkDeleteRunsDialog> {
+  final m.TextEditingController _confirm = m.TextEditingController();
+
+  @override
+  void dispose() {
+    _confirm.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('批量删除历史记录？'),
+      content: SizedBox(
+        width: 520.w,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('将删除 ${widget.count} 条历史记录及其日志（不可恢复）。'),
+            SizedBox(height: 12.h),
+            const Text('二次确认：输入 DELETE 继续').muted(),
+            SizedBox(height: 8.h),
+            m.TextField(
+              controller: _confirm,
+              decoration: const m.InputDecoration(hintText: 'DELETE'),
+              onChanged: (_) => setState(() {}),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        OutlineButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('取消'),
+        ),
+        DestructiveButton(
+          onPressed: _confirm.text.trim() == 'DELETE'
+              ? () => Navigator.of(context).pop(true)
+              : null,
+          child: const Text('删除'),
+        ),
+      ],
+    );
+  }
+}
 
 Future<bool?> _maybeConfirmUnsupportedControlAutoInstall(
   BuildContext context,
@@ -1451,12 +1590,12 @@ class _BatchEditDialogState extends State<_BatchEditDialog> {
                         .where((t) => !_order.contains(t.id))
                         .toList();
                     if (remaining.isEmpty) return;
-                    final picked = await showDialog<String>(
+                    final picked = await showDialog<List<String>>(
                       context: context,
                       builder: (context) => _PickTaskDialog(tasks: remaining),
                     );
-                    if (picked == null) return;
-                    setState(() => _order.add(picked));
+                    if (picked == null || picked.isEmpty) return;
+                    setState(() => _order.addAll(picked));
                   },
                   child: const Text('添加任务'),
                 ),
@@ -1552,26 +1691,53 @@ class _BatchEditDialogState extends State<_BatchEditDialog> {
   }
 }
 
-class _PickTaskDialog extends StatelessWidget {
+class _PickTaskDialog extends StatefulWidget {
   final List<Task> tasks;
 
   const _PickTaskDialog({required this.tasks});
 
   @override
+  State<_PickTaskDialog> createState() => _PickTaskDialogState();
+}
+
+class _PickTaskDialogState extends State<_PickTaskDialog> {
+  final Set<String> _selected = <String>{};
+
+  List<String> _selectedInOrder() {
+    final ordered = <String>[];
+    for (final t in widget.tasks) {
+      if (_selected.contains(t.id)) {
+        ordered.add(t.id);
+      }
+    }
+    return ordered;
+  }
+
+  @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('选择任务'),
+      title: const Text('选择任务（可多选）'),
       content: SizedBox(
         width: 520.w,
         height: 420.h,
         child: ListView.builder(
-          itemCount: tasks.length,
+          itemCount: widget.tasks.length,
           itemBuilder: (context, i) {
-            final t = tasks[i];
-            return m.ListTile(
+            final t = widget.tasks[i];
+            final checked = _selected.contains(t.id);
+            return m.CheckboxListTile(
+              value: checked,
+              onChanged: (v) {
+                setState(() {
+                  if (v == true) {
+                    _selected.add(t.id);
+                  } else {
+                    _selected.remove(t.id);
+                  }
+                });
+              },
               title: Text(t.name),
               subtitle: Text(t.description).muted(),
-              onTap: () => Navigator.of(context).pop(t.id),
             );
           },
         ),
@@ -1580,6 +1746,12 @@ class _PickTaskDialog extends StatelessWidget {
         OutlineButton(
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('取消'),
+        ),
+        PrimaryButton(
+          onPressed: _selected.isEmpty
+              ? null
+              : () => Navigator.of(context).pop(_selectedInOrder()),
+          child: Text('确认（已选 ${_selected.length}）'),
         ),
       ],
     );
