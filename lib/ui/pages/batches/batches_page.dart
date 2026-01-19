@@ -253,13 +253,171 @@ class _BatchDetail extends StatelessWidget {
           ),
         ),
         const VerticalDivider(width: 1),
-        Expanded(child: _BatchLogArea(batch: batch)),
+        Expanded(
+          child: Column(
+            children: [
+              _HorizontalTaskProgressBar(tasks: tasks),
+              Expanded(child: _BatchLogArea(batch: batch)),
+            ],
+          ),
+        ),
       ],
     );
   }
 }
 
-class _BatchSidebar extends StatelessWidget {
+class _HorizontalTaskProgressBar extends StatelessWidget {
+  final List<Task> tasks;
+
+  const _HorizontalTaskProgressBar({required this.tasks});
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = Get.find<BatchesController>();
+
+    return Container(
+      height: 64.h,
+      padding: EdgeInsets.symmetric(horizontal: 16.w),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.background,
+        border: Border(
+          bottom: BorderSide(color: Theme.of(context).colorScheme.border),
+        ),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Obx(() {
+              final run = controller.selectedRun;
+              final results = run?.taskResults ?? const <TaskRunResult>[];
+
+              if (tasks.isEmpty) {
+                return const Center(child: Text('暂无任务'));
+              }
+
+              return ListView.separated(
+                scrollDirection: Axis.horizontal,
+                padding: EdgeInsets.symmetric(vertical: 12.h),
+                itemCount: tasks.length,
+                separatorBuilder: (context, index) {
+                  return Container(
+                    width: 24.w,
+                    alignment: Alignment.center,
+                    child: Container(
+                      height: 1,
+                      color: Theme.of(context).colorScheme.border,
+                    ),
+                  );
+                },
+                itemBuilder: (context, index) {
+                  final task = tasks[index];
+                  final result = results.firstWhereOrNull(
+                    (r) => r.taskId == task.id,
+                  );
+                  final isSelected =
+                      controller.selectedTaskIndex.value == index;
+
+                  // Status Logic
+                  final status = result?.status ?? TaskExecStatus.waiting;
+                  final color = switch (status) {
+                    TaskExecStatus.running => m.Colors.blue,
+                    TaskExecStatus.success => m.Colors.green,
+                    TaskExecStatus.failed => m.Colors.red,
+                    _ => m.Colors.grey.shade400,
+                  };
+
+                  return GestureDetector(
+                    onTap: () => controller.selectedTaskIndex.value = index,
+                    child: Container(
+                      padding: EdgeInsets.symmetric(horizontal: 8.r),
+                      decoration: BoxDecoration(
+                        color: isSelected
+                            ? Theme.of(context).colorScheme.muted
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(
+                          color: isSelected
+                              ? Theme.of(context).colorScheme.border
+                              : Colors.transparent,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            width: 16,
+                            height: 16,
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: isSelected ? color : Colors.transparent,
+                              border: Border.all(color: color, width: 1.5),
+                            ),
+                            child: isSelected
+                                ? Text(
+                                    '${index + 1}',
+                                    style: TextStyle(
+                                      fontSize: 9.sp,
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  )
+                                : Text(
+                                    '${index + 1}',
+                                    style: TextStyle(
+                                      fontSize: 9.sp,
+                                      color: color,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                          ),
+                          SizedBox(width: 8.w),
+                          Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                task.name,
+                                style: TextStyle(
+                                  fontSize: 12.sp,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                              if (result?.exitCode != null)
+                                Text(
+                                  'Exit: ${result!.exitCode}',
+                                  style: TextStyle(
+                                    fontSize: 10.sp,
+                                    color: color,
+                                  ),
+                                ),
+                            ],
+                          ),
+                          if (status == TaskExecStatus.running) ...[
+                            SizedBox(width: 8.w),
+                            const SizedBox(
+                              width: 10,
+                              height: 10,
+                              child: m.CircularProgressIndicator(
+                                strokeWidth: 2,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              );
+            }),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BatchSidebar extends StatefulWidget {
   final Batch batch;
   final Server? control;
   final List<Server> managed;
@@ -273,6 +431,13 @@ class _BatchSidebar extends StatelessWidget {
   });
 
   @override
+  State<_BatchSidebar> createState() => _BatchSidebarState();
+}
+
+class _BatchSidebarState extends State<_BatchSidebar> {
+  int _tabIndex = 0; // 0: Tasks, 1: History
+
+  @override
   Widget build(BuildContext context) {
     final controller = Get.find<BatchesController>();
 
@@ -280,7 +445,7 @@ class _BatchSidebar extends StatelessWidget {
       final updated = await showDialog<Batch>(
         context: context,
         builder: (context) => _BatchEditDialog(
-          initial: batch,
+          initial: widget.batch,
           servers: controller.servers,
           tasks: controller.tasks,
         ),
@@ -299,24 +464,26 @@ class _BatchSidebar extends StatelessWidget {
     Future<void> onExecute() async {
       final inputs = await showDialog<RunInputs>(
         context: context,
-        builder: (context) => _BatchInputsDialog(tasks: tasks),
+        builder: (context) => _BatchInputsDialog(tasks: widget.tasks),
       );
       if (inputs == null) return;
       try {
         await controller.startRunWithInputs(inputs);
+        if (mounted) setState(() => _tabIndex = 0); // Switch to tasks view
       } on AppException catch (e) {
         if (e.code == AppErrorCode.validation &&
             e.message.contains('检测到控制端环境不支持')) {
           if (!context.mounted) return;
           final allow = await _maybeConfirmUnsupportedControlAutoInstall(
             context,
-            control!,
+            widget.control!,
           );
           if (allow == true) {
             await controller.startRunWithInputs(
               inputs,
               allowUnsupportedControlOsAutoInstall: true,
             );
+            if (mounted) setState(() => _tabIndex = 0); // Switch to tasks view
           }
         } else {
           if (context.mounted) {
@@ -327,7 +494,7 @@ class _BatchSidebar extends StatelessWidget {
     }
 
     Future<void> onExecuteReuseLast() async {
-      var inputs = await controller.readLastInputs(batch.id);
+      var inputs = await controller.readLastInputs(widget.batch.id);
       if (inputs == null) {
         if (context.mounted) {
           showDialog(
@@ -362,19 +529,21 @@ class _BatchSidebar extends StatelessWidget {
 
       try {
         await controller.startRunWithInputs(inputs);
+        if (mounted) setState(() => _tabIndex = 0);
       } on AppException catch (e) {
         if (e.code == AppErrorCode.validation &&
             e.message.contains('检测到控制端环境不支持')) {
           if (context.mounted) {
             final allow = await _maybeConfirmUnsupportedControlAutoInstall(
               context,
-              control!,
+              widget.control!,
             );
             if (allow == true) {
               await controller.startRunWithInputs(
                 inputs,
                 allowUnsupportedControlOsAutoInstall: true,
               );
+              if (mounted) setState(() => _tabIndex = 0);
             }
           }
         } else {
@@ -385,9 +554,9 @@ class _BatchSidebar extends StatelessWidget {
       }
     }
 
-    final paused = batch.status == BatchStatus.paused;
-    final running = batch.status == BatchStatus.running;
-    final ended = batch.status == BatchStatus.ended;
+    final paused = widget.batch.status == BatchStatus.paused;
+    final running = widget.batch.status == BatchStatus.running;
+    final ended = widget.batch.status == BatchStatus.ended;
 
     return Column(
       children: [
@@ -406,7 +575,7 @@ class _BatchSidebar extends StatelessWidget {
                 children: [
                   Expanded(
                     child: Text(
-                      batch.name,
+                      widget.batch.name,
                       style: m.Theme.of(context).textTheme.titleLarge,
                     ),
                   ),
@@ -510,122 +679,56 @@ class _BatchSidebar extends StatelessWidget {
           ),
         ),
 
-        // Info Grid
-        Expanded(
-          child: ListView(
-            padding: EdgeInsets.all(12.r),
+        // Tabs
+        SizedBox(
+          height: 40.h,
+          child: Row(
             children: [
-              _InfoItem(
-                label: '控制端',
-                value: control?.name ?? 'Unknown',
-                icon: Icons.computer,
-              ),
-              _InfoItem(
-                label: '被控端',
-                value: '${managed.length} 台',
-                icon: Icons.lan,
-              ),
-              _InfoItem(
-                label: 'Task 数',
-                value: '${tasks.length} 个',
+              _TabBtn(
+                label: '概览',
                 icon: Icons.task,
+                isSelected: _tabIndex == 0,
+                onTap: () => setState(() => _tabIndex = 0),
               ),
-
-              const Divider(),
-              Padding(
-                padding: EdgeInsets.symmetric(vertical: 8.h),
-                child: Text(
-                  '执行记录 (Runs)',
-                  style: m.Theme.of(context).textTheme.titleSmall,
-                ),
+              _TabBtn(
+                label: '历史记录',
+                icon: Icons.history,
+                isSelected: _tabIndex == 1,
+                onTap: () => setState(() => _tabIndex = 1),
               ),
-              Obx(() {
-                final runs = controller.runs;
-                if (runs.isEmpty) {
-                  return const Text('暂无记录').muted();
-                }
-                return Column(
-                  children: runs.map((r) {
-                    final isSelected = controller.selectedRunId.value == r.id;
-                    return GestureDetector(
-                      onTap: () => controller.selectedRunId.value = r.id,
-                      child: Container(
-                        margin: EdgeInsets.only(bottom: 4.h),
-                        padding: EdgeInsets.all(8.r),
-                        decoration: BoxDecoration(
-                          color: isSelected
-                              ? Theme.of(context).colorScheme.muted
-                              : Colors.transparent,
-                          borderRadius: BorderRadius.circular(4),
-                          border: Border.all(
-                            color: isSelected
-                                ? Theme.of(context).colorScheme.border
-                                : Colors.transparent,
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(
-                              _runStatusIcon(r.status),
-                              size: 14,
-                              color: _runStatusColor(r.status),
-                            ),
-                            SizedBox(width: 8.w),
-                            Expanded(
-                              child: Text(
-                                formatDateTime(r.startedAt),
-                                style: const TextStyle(fontFamily: 'GeistMono'),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  }).toList(),
-                );
-              }),
-
-              const Divider(),
-              Padding(
-                padding: EdgeInsets.symmetric(vertical: 8.h),
-                child: Text(
-                  '任务进度',
-                  style: m.Theme.of(context).textTheme.titleSmall,
-                ),
-              ),
-              Obx(() {
-                final run = controller.selectedRun;
-                final results = run?.taskResults ?? const <TaskRunResult>[];
-
-                return Column(
-                  children: [
-                    for (var i = 0; i < tasks.length; i++)
-                      _TaskStepItem(
-                        task: tasks[i],
-                        index: i,
-                        result: results.firstWhereOrNull(
-                          (r) => r.taskId == tasks[i].id,
-                        ),
-                        isSelected: controller.selectedTaskIndex.value == i,
-                        onTap: () => controller.selectedTaskIndex.value = i,
-                      ),
-                  ],
-                );
-              }),
             ],
           ),
         ),
+        const Divider(height: 1),
 
+        // Content
+        Expanded(
+          child: _tabIndex == 0
+              ? _TaskProgressView(
+                  batch: widget.batch,
+                  control: widget.control,
+                  managed: widget.managed,
+                  tasks: widget.tasks,
+                )
+              : _RunHistoryView(controller: controller),
+        ),
+
+        // Bottom Actions (Delete Batch)
         if (paused)
-          Padding(
+          Container(
             padding: EdgeInsets.all(12.r),
+            decoration: BoxDecoration(
+              border: Border(
+                top: BorderSide(color: Theme.of(context).colorScheme.border),
+              ),
+            ),
             child: SecondaryButton(
               onPressed: () async {
                 final ok = await showDialog<bool>(
                   context: context,
                   builder: (context) => AlertDialog(
                     title: const Text('删除批次'),
-                    content: Text('确认删除批次 "${batch.name}"？此操作不可恢复。'),
+                    content: Text('确认删除批次 "${widget.batch.name}"？此操作不可恢复。'),
                     actions: [
                       OutlineButton(
                         onPressed: () => Navigator.of(context).pop(false),
@@ -651,6 +754,177 @@ class _BatchSidebar extends StatelessWidget {
           ),
       ],
     );
+  }
+}
+
+class _TabBtn extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  const _TabBtn({
+    required this.label,
+    required this.icon,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          color: Colors.transparent,
+          alignment: Alignment.center,
+          child: Container(
+            padding: EdgeInsets.symmetric(vertical: 8.h),
+            decoration: BoxDecoration(
+              border: Border(
+                bottom: BorderSide(
+                  color: isSelected
+                      // ignore: deprecated_member_use
+                      ? m.Theme.of(context).colorScheme.primary
+                      : Colors.transparent,
+                  width: 2,
+                ),
+              ),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  icon,
+                  size: 14,
+                  // ignore: deprecated_member_use
+                  color: isSelected
+                      ? m.Theme.of(context).colorScheme.primary
+                      : m.Theme.of(
+                          context,
+                        ).colorScheme.onSurface.withOpacity(0.5),
+                ),
+                SizedBox(width: 8.w),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 13.sp,
+                    fontWeight: isSelected
+                        ? FontWeight.bold
+                        : FontWeight.normal,
+                    // ignore: deprecated_member_use
+                    color: isSelected
+                        ? m.Theme.of(context).colorScheme.primary
+                        : m.Theme.of(
+                            context,
+                          ).colorScheme.onSurface.withOpacity(0.6),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _TaskProgressView extends StatelessWidget {
+  final Batch batch;
+  final Server? control;
+  final List<Server> managed;
+  final List<Task> tasks;
+
+  const _TaskProgressView({
+    required this.batch,
+    required this.control,
+    required this.managed,
+    required this.tasks,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.all(12.r),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _InfoItem(
+            label: '控制端',
+            value: control?.name ?? 'Unknown',
+            icon: Icons.computer,
+          ),
+          _InfoItem(
+            label: '被控端',
+            value: '${managed.length} 台',
+            icon: Icons.lan,
+          ),
+          _InfoItem(
+            label: 'Task 数',
+            value: '${tasks.length} 个',
+            icon: Icons.task,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RunHistoryView extends StatelessWidget {
+  final BatchesController controller;
+
+  const _RunHistoryView({required this.controller});
+
+  @override
+  Widget build(BuildContext context) {
+    return Obx(() {
+      final runs = controller.runs;
+      if (runs.isEmpty) {
+        return const Center(child: Text('暂无执行记录'));
+      }
+      return ListView.builder(
+        padding: EdgeInsets.all(12.r),
+        itemCount: runs.length,
+        itemBuilder: (context, index) {
+          final r = runs[index];
+          final isSelected = controller.selectedRunId.value == r.id;
+          return GestureDetector(
+            onTap: () => controller.selectedRunId.value = r.id,
+            child: Container(
+              margin: EdgeInsets.only(bottom: 4.h),
+              padding: EdgeInsets.all(8.r),
+              decoration: BoxDecoration(
+                color: isSelected
+                    ? Theme.of(context).colorScheme.muted
+                    : Colors.transparent,
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(
+                  color: isSelected
+                      ? Theme.of(context).colorScheme.border
+                      : Colors.transparent,
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    _runStatusIcon(r.status),
+                    size: 14,
+                    color: _runStatusColor(r.status),
+                  ),
+                  SizedBox(width: 8.w),
+                  Expanded(
+                    child: Text(
+                      formatDateTime(r.startedAt),
+                      style: const TextStyle(fontFamily: 'GeistMono'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      );
+    });
   }
 
   IconData _runStatusIcon(String status) {
@@ -710,103 +984,6 @@ class _InfoItem extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _TaskStepItem extends StatelessWidget {
-  final Task task;
-  final int index;
-  final TaskRunResult? result;
-  final bool isSelected;
-  final VoidCallback onTap;
-
-  const _TaskStepItem({
-    required this.task,
-    required this.index,
-    required this.result,
-    required this.isSelected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final status = result?.status ?? TaskExecStatus.waiting;
-    final color = switch (status) {
-      TaskExecStatus.running => m.Colors.blue,
-      TaskExecStatus.success => m.Colors.green,
-      TaskExecStatus.failed => m.Colors.red,
-      _ => m.Colors.grey.shade400,
-    };
-
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        margin: EdgeInsets.only(bottom: 6.h),
-        padding: EdgeInsets.all(8.r),
-        decoration: BoxDecoration(
-          // ignore: deprecated_member_use
-          color: isSelected
-              ? Theme.of(context).colorScheme.muted.withOpacity(0.5)
-              : Colors.transparent,
-          border: Border.all(
-            color: isSelected
-                ? Theme.of(context).colorScheme.border
-                : Colors.transparent,
-          ),
-          borderRadius: BorderRadius.circular(4),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 18,
-              height: 18,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: isSelected ? color : Colors.transparent,
-                border: Border.all(color: color),
-                shape: BoxShape.circle,
-              ),
-              child: isSelected
-                  ? Text(
-                      '${index + 1}',
-                      style: const TextStyle(
-                        fontSize: 10,
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    )
-                  : Text(
-                      '${index + 1}',
-                      style: TextStyle(fontSize: 10, color: color),
-                    ),
-            ),
-            SizedBox(width: 10.w),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    task.name,
-                    style: const TextStyle(fontWeight: FontWeight.w500),
-                  ),
-                  if (result?.exitCode != null)
-                    Text(
-                      'Exit: ${result!.exitCode}',
-                      style: TextStyle(fontSize: 10.sp, color: color),
-                    ),
-                ],
-              ),
-            ),
-            if (status == TaskExecStatus.running)
-              const SizedBox(
-                width: 12,
-                height: 12,
-                child: m.CircularProgressIndicator(strokeWidth: 2),
-              ),
-          ],
-        ),
       ),
     );
   }
