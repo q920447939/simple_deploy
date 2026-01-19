@@ -1521,7 +1521,9 @@ class _BatchInputsDialogState extends State<_BatchInputsDialog> {
       } else {
         list
           ..clear()
-          ..add(FileBinding(type: FileBindingType.localPath, path: picked.first));
+          ..add(
+            FileBinding(type: FileBindingType.localPath, path: picked.first),
+          );
       }
     });
   }
@@ -1653,10 +1655,7 @@ class _BatchInputsDialogState extends State<_BatchInputsDialog> {
     );
   }
 
-  Future<String?> _promptPath({
-    required String title,
-    String? hintText,
-  }) async {
+  Future<String?> _promptPath({required String title, String? hintText}) async {
     final controller = m.TextEditingController();
     final result = await showDialog<String>(
       context: context,
@@ -1685,12 +1684,11 @@ class _BatchInputsDialogState extends State<_BatchInputsDialog> {
     controller.dispose();
     return result;
   }
+
   void _remove(Task task, FileSlot slot, FileBinding binding) {
     setState(() {
       final list = _ensureList(task.id, slot.name);
-      list.removeWhere(
-        (b) => b.type == binding.type && b.path == binding.path,
-      );
+      list.removeWhere((b) => b.type == binding.type && b.path == binding.path);
       if (list.isEmpty) {
         _fileInputs[task.id]?.remove(slot.name);
         if ((_fileInputs[task.id]?.isEmpty ?? false)) {
@@ -1714,7 +1712,7 @@ class _BatchInputsDialogState extends State<_BatchInputsDialog> {
     return AlertDialog(
       title: const Text('选择运行输入'),
       content: SizedBox(
-        width: 760.w,
+        width: 960.w,
         height: 560.h,
         child: m.ListView(
           children: [
@@ -1847,20 +1845,11 @@ class _SlotRow extends StatelessWidget {
               child: Text(hasAny && slot.multiple ? '添加' : '选择'),
             ),
             SizedBox(width: 8.w),
-            GhostButton(
-              onPressed: onAddLocal,
-              child: const Text('本地路径'),
-            ),
+            GhostButton(onPressed: onAddLocal, child: const Text('本地路径')),
             SizedBox(width: 8.w),
-            GhostButton(
-              onPressed: onAddControl,
-              child: const Text('控制端路径'),
-            ),
+            GhostButton(onPressed: onAddControl, child: const Text('控制端路径')),
             SizedBox(width: 8.w),
-            GhostButton(
-              onPressed: onAddOutput,
-              child: const Text('脚本产物'),
-            ),
+            GhostButton(onPressed: onAddOutput, child: const Text('脚本产物')),
             SizedBox(width: 8.w),
             GhostButton(
               onPressed: hasAny ? onClear : null,

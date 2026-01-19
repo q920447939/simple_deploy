@@ -603,36 +603,32 @@ class _TaskDetail extends StatelessWidget {
                             }).toList(),
                           ),
                   ),
-                ] else ...[
+                ],
+                if (task.isAnsiblePlaybook && task.fileSlots.isNotEmpty) ...[
                   infoRow(
                     '文件槽位',
-                    task.fileSlots.isEmpty
-                        ? Text(
-                            '无',
-                            style: valueStyle.copyWith(color: m.Colors.grey),
-                          )
-                        : Wrap(
-                            spacing: 8.w,
-                            runSpacing: 8.h,
-                            children: task.fileSlots.map((s) {
-                              return Container(
-                                padding: EdgeInsets.symmetric(
-                                  horizontal: 8.w,
-                                  vertical: 4.h,
-                                ),
-                                decoration: BoxDecoration(
-                                  border: Border.all(
-                                    color: m.Theme.of(context).dividerColor,
-                                  ),
-                                  borderRadius: BorderRadius.circular(4.r),
-                                ),
-                                child: Text(
-                                  '${s.name}${s.required ? "*" : ""} (${s.multiple ? "N" : "1"})',
-                                  style: valueStyle.copyWith(fontSize: 12.sp),
-                                ),
-                              );
-                            }).toList(),
+                    Wrap(
+                      spacing: 8.w,
+                      runSpacing: 8.h,
+                      children: task.fileSlots.map((s) {
+                        return Container(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: 8.w,
+                            vertical: 4.h,
                           ),
+                          decoration: BoxDecoration(
+                            border: Border.all(
+                              color: m.Theme.of(context).dividerColor,
+                            ),
+                            borderRadius: BorderRadius.circular(4.r),
+                          ),
+                          child: Text(
+                            '${s.name}${s.required ? "*" : ""} (${s.multiple ? "N" : "1"})',
+                            style: valueStyle.copyWith(fontSize: 12.sp),
+                          ),
+                        );
+                      }).toList(),
+                    ),
                   ),
                 ],
                 SizedBox(height: 16.h),
@@ -1106,43 +1102,42 @@ class _TaskEditDialogState extends State<_TaskEditDialog> {
                           ),
                   ),
                 ],
-                SizedBox(height: 16.h),
-                Row(
-                  children: [
-                    const Expanded(child: Text('文件槽位')),
-                    OutlineButton(
-                      onPressed: _type == TaskType.ansiblePlaybook
-                          ? _addSlot
-                          : null,
-                      child: const Text('新增槽位'),
-                    ),
-                  ],
-                ),
-                SizedBox(height: 8.h),
-                SizedBox(
-                  height: 160.h,
-                  child: _slots.isEmpty
-                      ? const Center(child: Text('无'))
-                      : m.ListView.builder(
-                          itemCount: _slots.length,
-                          itemBuilder: (context, i) {
-                            final s = _slots[i];
-                            return m.ListTile(
-                              title: Text(s.name),
-                              subtitle: Text(
-                                '${s.required ? '必选' : '可选'} · ${s.multiple ? '多文件' : '单文件'}',
-                              ).muted(),
-                              trailing: GhostButton(
-                                density: ButtonDensity.icon,
-                                onPressed: _type == TaskType.ansiblePlaybook
-                                    ? () => setState(() => _slots.removeAt(i))
-                                    : null,
-                                child: const Icon(Icons.close),
-                              ),
-                            );
-                          },
-                        ),
-                ),
+                if (_type == TaskType.ansiblePlaybook) ...[
+                  SizedBox(height: 16.h),
+                  Row(
+                    children: [
+                      const Expanded(child: Text('文件槽位')),
+                      OutlineButton(
+                        onPressed: _addSlot,
+                        child: const Text('新增槽位'),
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: 8.h),
+                  SizedBox(
+                    height: 160.h,
+                    child: _slots.isEmpty
+                        ? const Center(child: Text('无'))
+                        : m.ListView.builder(
+                            itemCount: _slots.length,
+                            itemBuilder: (context, i) {
+                              final s = _slots[i];
+                              return m.ListTile(
+                                title: Text(s.name),
+                                subtitle: Text(
+                                  '${s.required ? '必选' : '可选'} · ${s.multiple ? '多文件' : '单文件'}',
+                                ).muted(),
+                                trailing: GhostButton(
+                                  density: ButtonDensity.icon,
+                                  onPressed: () =>
+                                      setState(() => _slots.removeAt(i)),
+                                  child: const Icon(Icons.close),
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                ],
               ],
             ),
           ),
