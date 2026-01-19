@@ -77,6 +77,28 @@ class TaskScript {
   }
 }
 
+class TaskOutput {
+  final String name;
+  final String path;
+
+  const TaskOutput({required this.name, required this.path});
+
+  TaskOutput copyWith({String? name, String? path}) {
+    return TaskOutput(name: name ?? this.name, path: path ?? this.path);
+  }
+
+  static TaskOutput fromJson(Map<String, Object?> json) {
+    return TaskOutput(
+      name: (json['name'] as String?) ?? '',
+      path: (json['path'] as String?) ?? '',
+    );
+  }
+
+  Map<String, Object?> toJson() {
+    return {'name': name, 'path': path};
+  }
+}
+
 class Task {
   final String id;
   final String name;
@@ -86,6 +108,7 @@ class Task {
   final TaskScript? script; // only for local_script
   final List<FileSlot> fileSlots;
   final List<TaskVariable> variables;
+  final List<TaskOutput> outputs; // only for local_script
 
   const Task({
     required this.id,
@@ -96,6 +119,7 @@ class Task {
     required this.script,
     required this.fileSlots,
     required this.variables,
+    required this.outputs,
   });
 
   Task copyWith({
@@ -106,6 +130,7 @@ class Task {
     TaskScript? script,
     List<FileSlot>? fileSlots,
     List<TaskVariable>? variables,
+    List<TaskOutput>? outputs,
   }) {
     return Task(
       id: id,
@@ -116,6 +141,7 @@ class Task {
       script: script ?? this.script,
       fileSlots: fileSlots ?? this.fileSlots,
       variables: variables ?? this.variables,
+      outputs: outputs ?? this.outputs,
     );
   }
 
@@ -127,6 +153,8 @@ class Task {
         (json['file_slots'] as List?)?.whereType<Map>().toList() ?? const [];
     final vars =
         (json['variables'] as List?)?.whereType<Map>().toList() ?? const [];
+    final outputs =
+        (json['outputs'] as List?)?.whereType<Map>().toList() ?? const [];
     final rawType = (json['type'] as String?) ?? TaskType.ansiblePlaybook;
     final scriptRaw = json['script'];
     return Task(
@@ -144,6 +172,9 @@ class Task {
       variables: vars
           .map((m) => TaskVariable.fromJson(m.cast<String, Object?>()))
           .toList(),
+      outputs: outputs
+          .map((m) => TaskOutput.fromJson(m.cast<String, Object?>()))
+          .toList(),
     );
   }
 
@@ -157,6 +188,7 @@ class Task {
       'script': script?.toJson(),
       'file_slots': fileSlots.map((s) => s.toJson()).toList(),
       'variables': variables.map((v) => v.toJson()).toList(),
+      'outputs': outputs.map((o) => o.toJson()).toList(),
     };
   }
 }

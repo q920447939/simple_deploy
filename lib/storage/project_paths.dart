@@ -34,10 +34,6 @@ class ProjectPaths {
       AtomicFile.childFile(batchesDir, '$batchId.json');
   File batchLastInputsFile(String batchId) =>
       AtomicFile.childFile(batchesDir, '$batchId.last_inputs');
-  File batchLastFileInputsFile(String batchId) =>
-      AtomicFile.childFile(batchesDir, '$batchId.last_file_inputs');
-  File batchLastFileInputsLegacyFile(String batchId) =>
-      AtomicFile.childFile(batchesDir, '$batchId.last_file_inputs.json');
   File runFile(String runId) => AtomicFile.childFile(runsDir, '$runId.json');
 
   Directory runArtifactsFor(String runId) =>

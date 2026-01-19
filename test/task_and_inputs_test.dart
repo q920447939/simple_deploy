@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:simple_deploy/model/file_binding.dart';
 import 'package:simple_deploy/model/run_inputs.dart';
 import 'package:simple_deploy/model/task.dart';
 
@@ -38,6 +39,7 @@ void main() {
           required: true,
         ),
       ],
+      outputs: const [],
     );
     final t2 = Task.fromJson(t.toJson());
     expect(t2.type, TaskType.localScript);
@@ -52,15 +54,18 @@ void main() {
     final inputs = RunInputs.fromJson({
       'file_inputs': {
         't1': {
-          'artifact': ['/a/b/c.tar.gz'],
+          'artifact': [
+            {'type': 'local_path', 'path': '/a/b/c.tar.gz'},
+          ],
         },
       },
       'vars': {
         't1': {'version': '2.0.0'},
       },
     });
-    expect(inputs.fileInputs['t1']?['artifact'], ['/a/b/c.tar.gz']);
+    final binding = inputs.fileInputs['t1']?['artifact']?.first;
+    expect(binding?.type, FileBindingType.localPath);
+    expect(binding?.path, '/a/b/c.tar.gz');
     expect(inputs.vars['t1']?['version'], '2.0.0');
   });
 }
-

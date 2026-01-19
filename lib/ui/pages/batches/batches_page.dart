@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
 import '../../../model/batch.dart';
+import '../../../model/file_binding.dart';
 import '../../../model/file_slot.dart';
 import '../../../model/run.dart';
 import '../../../model/run_inputs.dart';
@@ -1418,7 +1419,7 @@ class _BatchInputsDialog extends StatefulWidget {
 }
 
 class _BatchInputsDialogState extends State<_BatchInputsDialog> {
-  final Map<String, Map<String, List<String>>> _fileInputs = {};
+  final Map<String, Map<String, List<FileBinding>>> _fileInputs = {};
   final Map<String, Map<String, m.TextEditingController>> _varCtrls = {};
 
   @override
@@ -1449,18 +1450,18 @@ class _BatchInputsDialogState extends State<_BatchInputsDialog> {
     super.dispose();
   }
 
-  List<String> _ensureList(String taskId, String slotName) {
+  List<FileBinding> _ensureList(String taskId, String slotName) {
     final byTask = _fileInputs.putIfAbsent(
       taskId,
-      () => <String, List<String>>{},
+      () => <String, List<FileBinding>>{},
     );
-    return byTask.putIfAbsent(slotName, () => <String>[]);
+    return byTask.putIfAbsent(slotName, () => <FileBinding>[]);
   }
 
   bool get _canStart {
     for (final t in widget.tasks) {
       for (final s in t.fileSlots.where((x) => x.required)) {
-        final list = _fileInputs[t.id]?[s.name] ?? const <String>[];
+        final list = _fileInputs[t.id]?[s.name] ?? const <FileBinding>[];
         if (list.isEmpty) return false;
       }
       for (final v in t.variables.where((x) => x.required)) {
@@ -1473,11 +1474,14 @@ class _BatchInputsDialogState extends State<_BatchInputsDialog> {
   }
 
   RunInputs _normalized() {
-    final outFiles = <String, Map<String, List<String>>>{};
+    final outFiles = <String, Map<String, List<FileBinding>>>{};
     for (final entry in _fileInputs.entries) {
-      final slots = <String, List<String>>{};
+      final slots = <String, List<FileBinding>>{};
       for (final s in entry.value.entries) {
-        final list = s.value.where((x) => x.trim().isNotEmpty).toList();
+        final list = s.value
+            .where((x) => x.path.trim().isNotEmpty)
+            .map((x) => x.copyWith(path: x.path.trim()))
+            .toList();
         if (list.isEmpty) continue;
         slots[s.key] = list;
       }
@@ -1510,20 +1514,183 @@ class _BatchInputsDialogState extends State<_BatchInputsDialog> {
       final list = _ensureList(task.id, slot.name);
       if (slot.multiple) {
         for (final x in picked) {
-          if (!list.contains(x)) list.add(x);
+          if (list.every((b) => b.path != x)) {
+            list.add(FileBinding(type: FileBindingType.localPath, path: x));
+          }
         }
       } else {
         list
           ..clear()
-          ..add(picked.first);
+          ..add(FileBinding(type: FileBindingType.localPath, path: picked.first));
       }
     });
   }
 
-  void _remove(Task task, FileSlot slot, String path) {
+  Future<void> _addLocalPath(Task task, FileSlot slot) async {
+    final path = await _promptPath(
+      title: '输入本地路径：' + task.name + ' / ' + slot.name,
+      hintText: '例如：/home/user/package.tar.gz 或 C:\\path\\file.zip',
+    );
+    if (path == null || path.trim().isEmpty) return;
     setState(() {
       final list = _ensureList(task.id, slot.name);
-      list.remove(path);
+      if (slot.multiple) {
+        if (list.every((b) => b.path != path.trim())) {
+          list.add(
+            FileBinding(type: FileBindingType.localPath, path: path.trim()),
+          );
+        }
+      } else {
+        list
+          ..clear()
+          ..add(
+            FileBinding(type: FileBindingType.localPath, path: path.trim()),
+          );
+      }
+    });
+  }
+
+  Future<void> _addControlPath(Task task, FileSlot slot) async {
+    final path = await _promptPath(
+      title: '输入控制端路径：' + task.name + ' / ' + slot.name,
+      hintText: '例如：/opt/packages/app.tar.gz',
+    );
+    if (path == null || path.trim().isEmpty) return;
+    setState(() {
+      final list = _ensureList(task.id, slot.name);
+      if (slot.multiple) {
+        if (list.every((b) => b.path != path.trim())) {
+          list.add(
+            FileBinding(type: FileBindingType.controlPath, path: path.trim()),
+          );
+        }
+      } else {
+        list
+          ..clear()
+          ..add(
+            FileBinding(type: FileBindingType.controlPath, path: path.trim()),
+          );
+      }
+    });
+  }
+
+  Future<void> _addScriptOutput(Task task, FileSlot slot, int taskIndex) async {
+    final binding = await _pickScriptOutput(taskIndex);
+    if (binding == null) return;
+    setState(() {
+      final list = _ensureList(task.id, slot.name);
+      if (slot.multiple) {
+        if (list.every((b) => b.path != binding.path)) {
+          list.add(binding);
+        }
+      } else {
+        list
+          ..clear()
+          ..add(binding);
+      }
+    });
+  }
+
+  Future<FileBinding?> _pickScriptOutput(int taskIndex) async {
+    final options = <_ScriptOutputChoice>[];
+    for (var i = 0; i < widget.tasks.length; i++) {
+      if (i >= taskIndex) break;
+      final t = widget.tasks[i];
+      if (!t.isLocalScript || t.outputs.isEmpty) continue;
+      for (final o in t.outputs) {
+        options.add(_ScriptOutputChoice(task: t, output: o, index: i));
+      }
+    }
+
+    if (options.isEmpty) {
+      await showAppErrorDialog(
+        context,
+        const AppException(
+          code: AppErrorCode.validation,
+          title: '无可用脚本产物',
+          message: '当前任务之前没有带产物的脚本任务。',
+          suggestion: '请先添加并执行产生产物的脚本任务。',
+        ),
+      );
+      return null;
+    }
+
+    return showDialog<FileBinding>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('选择脚本产物'),
+          content: SizedBox(
+            width: 560.w,
+            height: 360.h,
+            child: ListView.builder(
+              itemCount: options.length,
+              itemBuilder: (context, i) {
+                final o = options[i];
+                return m.ListTile(
+                  title: Text(o.task.name + ' / ' + o.output.name),
+                  subtitle: Text(o.output.path).muted(),
+                  onTap: () => Navigator.of(context).pop(
+                    FileBinding(
+                      type: FileBindingType.localOutput,
+                      path: o.output.path,
+                      sourceTaskId: o.task.id,
+                      sourceOutput: o.output.name,
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          actions: [
+            OutlineButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('取消'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<String?> _promptPath({
+    required String title,
+    String? hintText,
+  }) async {
+    final controller = m.TextEditingController();
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text(title),
+          content: m.TextField(
+            controller: controller,
+            decoration: m.InputDecoration(hintText: hintText),
+            autofocus: true,
+          ),
+          actions: [
+            OutlineButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('取消'),
+            ),
+            PrimaryButton(
+              onPressed: () =>
+                  Navigator.of(context).pop(controller.text.trim()),
+              child: const Text('确定'),
+            ),
+          ],
+        );
+      },
+    );
+    controller.dispose();
+    return result;
+  }
+  void _remove(Task task, FileSlot slot, FileBinding binding) {
+    setState(() {
+      final list = _ensureList(task.id, slot.name);
+      list.removeWhere(
+        (b) => b.type == binding.type && b.path == binding.path,
+      );
       if (list.isEmpty) {
         _fileInputs[task.id]?.remove(slot.name);
         if ((_fileInputs[task.id]?.isEmpty ?? false)) {
@@ -1580,11 +1747,16 @@ class _BatchInputsDialogState extends State<_BatchInputsDialog> {
               for (final slot in widget.tasks[ti].fileSlots) ...[
                 _SlotRow(
                   slot: slot,
-                  selectedPaths:
+                  selectedBindings:
                       _fileInputs[widget.tasks[ti].id]?[slot.name] ?? const [],
                   onPick: () => _pickFiles(widget.tasks[ti], slot),
+                  onAddLocal: () => _addLocalPath(widget.tasks[ti], slot),
+                  onAddControl: () => _addControlPath(widget.tasks[ti], slot),
+                  onAddOutput: () =>
+                      _addScriptOutput(widget.tasks[ti], slot, ti),
                   onClear: () => _clear(widget.tasks[ti], slot),
-                  onRemove: (path) => _remove(widget.tasks[ti], slot, path),
+                  onRemove: (binding) =>
+                      _remove(widget.tasks[ti], slot, binding),
                 ),
                 SizedBox(height: 10.h),
               ],
@@ -1608,17 +1780,35 @@ class _BatchInputsDialogState extends State<_BatchInputsDialog> {
   }
 }
 
+class _ScriptOutputChoice {
+  final Task task;
+  final TaskOutput output;
+  final int index;
+
+  const _ScriptOutputChoice({
+    required this.task,
+    required this.output,
+    required this.index,
+  });
+}
+
 class _SlotRow extends StatelessWidget {
   final FileSlot slot;
-  final List<String> selectedPaths;
+  final List<FileBinding> selectedBindings;
   final VoidCallback onPick;
+  final VoidCallback onAddLocal;
+  final VoidCallback onAddControl;
+  final VoidCallback onAddOutput;
   final VoidCallback onClear;
-  final void Function(String path) onRemove;
+  final void Function(FileBinding binding) onRemove;
 
   const _SlotRow({
     required this.slot,
-    required this.selectedPaths,
+    required this.selectedBindings,
     required this.onPick,
+    required this.onAddLocal,
+    required this.onAddControl,
+    required this.onAddOutput,
     required this.onClear,
     required this.onRemove,
   });
@@ -1627,7 +1817,19 @@ class _SlotRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final requiredText = slot.required ? '必选' : '可选';
     final multiText = slot.multiple ? '多文件' : '单文件';
-    final hasAny = selectedPaths.isNotEmpty;
+    final hasAny = selectedBindings.isNotEmpty;
+
+    String labelFor(FileBinding b) {
+      if (b.isLocalOutput) {
+        final name = b.sourceOutput == null || b.sourceOutput!.trim().isEmpty
+            ? b.path
+            : b.sourceOutput!;
+        return '产物: ' + name;
+      }
+      final prefix = b.isControl ? '控制端' : '本地';
+      final name = b.isControl ? b.path : p.basename(b.path);
+      return prefix + ': ' + name;
+    }
 
     return Column(
       crossAxisAlignment: m.CrossAxisAlignment.start,
@@ -1646,23 +1848,38 @@ class _SlotRow extends StatelessWidget {
             ),
             SizedBox(width: 8.w),
             GhostButton(
+              onPressed: onAddLocal,
+              child: const Text('本地路径'),
+            ),
+            SizedBox(width: 8.w),
+            GhostButton(
+              onPressed: onAddControl,
+              child: const Text('控制端路径'),
+            ),
+            SizedBox(width: 8.w),
+            GhostButton(
+              onPressed: onAddOutput,
+              child: const Text('脚本产物'),
+            ),
+            SizedBox(width: 8.w),
+            GhostButton(
               onPressed: hasAny ? onClear : null,
               child: const Text('清空'),
             ),
           ],
         ),
         const SizedBox(height: 6),
-        if (selectedPaths.isEmpty)
+        if (selectedBindings.isEmpty)
           Text(slot.required ? '（必选）未选择文件' : '未选择').muted()
         else
           Wrap(
             spacing: 8.w,
             runSpacing: 8.h,
             children: [
-              for (final path in selectedPaths)
+              for (final binding in selectedBindings)
                 m.InputChip(
-                  label: Text(p.basename(path)).mono(),
-                  onDeleted: () => onRemove(path),
+                  label: Text(labelFor(binding)).mono(),
+                  onDeleted: () => onRemove(binding),
                 ),
             ],
           ),

@@ -453,19 +453,7 @@ class BatchesController extends GetxController {
         return parsed;
       }
     }
-
-    // Legacy: only file inputs.
-    final legacy =
-        await AtomicFile.readJsonOrNull(pp.batchLastFileInputsFile(batchId)) ??
-        await AtomicFile.readJsonOrNull(
-          pp.batchLastFileInputsLegacyFile(batchId),
-        );
-    if (legacy is! Map) return null;
-    final parsed = RunInputs.fromJson({
-      'file_inputs': legacy,
-      'vars': const {},
-    });
-    return parsed.fileInputs.isEmpty ? null : parsed;
+    return null;
   }
 
   Future<void> _writeLastInputs(String batchId, RunInputs inputs) async {
@@ -476,16 +464,6 @@ class BatchesController extends GetxController {
       pp.batchLastInputsFile(batchId),
       inputs.toJson(),
     );
-
-    // Clean up legacy files.
-    final legacyNoExt = pp.batchLastFileInputsFile(batchId);
-    if (await legacyNoExt.exists()) {
-      await legacyNoExt.delete();
-    }
-    final legacyJson = pp.batchLastFileInputsLegacyFile(batchId);
-    if (await legacyJson.exists()) {
-      await legacyJson.delete();
-    }
   }
 
   Future<void> _loadLastRuns(String projectId, List<Batch> list) async {

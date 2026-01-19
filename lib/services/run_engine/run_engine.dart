@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 
 import '../../model/batch.dart';
+import '../../model/file_binding.dart';
 import '../../model/playbook_meta.dart';
 import '../../model/run.dart';
 import '../../model/run_inputs.dart';
@@ -158,6 +159,34 @@ class RunEngine {
 
       _assertTaskOrderOrThrow(orderedTasks);
 
+      if (orderedTasks.any((t) => t.isLocalScript)) {
+        final preStage = await _prepareStage(
+          pp: pp,
+          runId: runId,
+          tasks: orderedTasks,
+          playbooks: allPlaybooks,
+          remoteFilesMapping: const <String, Map<String, List<String>>>{},
+          managedServers: managedServers,
+          projectId: projectId,
+          effectiveVarsByTaskId: effectiveVarsByTaskId,
+        );
+
+        final localRun = await _runLocalScripts(
+          pp: pp,
+          runId: runId,
+          tasks: orderedTasks,
+          stage: preStage.stage,
+          remoteRunDir: preStage.remoteRunDir,
+          effectiveVarsByTaskId: effectiveVarsByTaskId,
+          run: run,
+          runsStore: runsStore,
+        );
+        run = localRun.run;
+        if (localRun.aborted) {
+          return;
+        }
+      }
+
       final preparedInputs = await _persistFileInputsToArtifacts(
         pp: pp,
         runId: runId,
@@ -186,22 +215,19 @@ class RunEngine {
         effectiveVarsByTaskId: effectiveVarsByTaskId,
       );
 
-      // Run local_script tasks first (pre-bundle).
-      final zipPrepared = await _runLocalScriptsAndZip(
-        pp: pp,
-        runId: runId,
-        tasks: orderedTasks,
+      final bundle = await _zipStage(
         stage: stagePrepared.stage,
-        remoteRunDir: stagePrepared.remoteRunDir,
+        runArtifacts: pp.runArtifactsFor(runId),
         remoteFilesMapping: preparedInputs.remoteFilesMapping,
-        effectiveVarsByTaskId: effectiveVarsByTaskId,
-        run: run,
-        runsStore: runsStore,
+        remoteRunDir: stagePrepared.remoteRunDir,
       );
-      run = zipPrepared.run;
-      if (zipPrepared.aborted) {
-        return;
-      }
+
+      final zipPrepared = _PreparedBundleAndRun(
+        run: run,
+        bundleZip: bundle.bundleZip,
+        remoteRunDir: bundle.remoteRunDir,
+        aborted: false,
+      );
 
       final hasAnyRemote = orderedTasks.any((t) => t.isAnsiblePlaybook);
       if (!hasAnyRemote) {
@@ -557,12 +583,9 @@ class RunEngine {
       for (final entry in mapping.entries) {
         for (final remoteRel in entry.value) {
           if (!remoteRel.startsWith('files/')) {
-            throw AppException(
-              code: AppErrorCode.unknown,
-              title: '文件映射不合法',
-              message: 'remoteRel 必须以 files/ 开头：$remoteRel',
-              suggestion: '请重试；如持续出现请清理项目数据后再试。',
-            );
+            // control_path bindings point to pre-existing control-node paths.
+            // They are not staged into the bundle.
+            continue;
           }
           final artifactRel = remoteRel.substring('files/'.length);
           final src = File(p.join(runArtifacts.path, artifactRel));
@@ -678,13 +701,12 @@ class RunEngine {
     );
   }
 
-  Future<_PreparedBundleAndRun> _runLocalScriptsAndZip({
+  Future<_PreparedLocalRun> _runLocalScripts({
     required ProjectPaths pp,
     required String runId,
     required List<Task> tasks,
     required Directory stage,
     required String remoteRunDir,
-    required Map<String, Map<String, List<String>>> remoteFilesMapping,
     required Map<String, Map<String, String>> effectiveVarsByTaskId,
     required Run run,
     required RunsStore runsStore,
@@ -727,10 +749,7 @@ class RunEngine {
             errorSummary: '脚本任务失败：${task.name} (missing script)',
           );
           await runsStore.write(run);
-          return _PreparedBundleAndRun.aborted(
-            run: run,
-            remoteRunDir: remoteRunDir,
-          );
+          return _PreparedLocalRun(run: run, aborted: true);
         }
 
         final shell = script.shell.trim().isEmpty ? 'bash' : script.shell.trim();
@@ -752,10 +771,7 @@ class RunEngine {
             errorSummary: '脚本任务失败：${task.name} (unsupported shell)',
           );
           await runsStore.write(run);
-          return _PreparedBundleAndRun.aborted(
-            run: run,
-            remoteRunDir: remoteRunDir,
-          );
+          return _PreparedLocalRun(run: run, aborted: true);
         }
 
         final scriptsDir = Directory(p.join(runArtifacts.path, 'local_scripts'));
@@ -817,10 +833,7 @@ class RunEngine {
             errorSummary: '脚本任务失败：${task.name} (无法启动解释器)',
           );
           await runsStore.write(run);
-          return _PreparedBundleAndRun.aborted(
-            run: run,
-            remoteRunDir: remoteRunDir,
-          );
+          return _PreparedLocalRun(run: run, aborted: true);
         }
         proc.stdout
             .transform(const Utf8Decoder(allowMalformed: true))
@@ -858,10 +871,7 @@ class RunEngine {
             errorSummary: '脚本任务失败：${task.name} (exit=$exit)',
           );
           await runsStore.write(run);
-          return _PreparedBundleAndRun.aborted(
-            run: run,
-            remoteRunDir: remoteRunDir,
-          );
+          return _PreparedLocalRun(run: run, aborted: true);
         }
       } finally {
         await sink.flush();
@@ -869,20 +879,7 @@ class RunEngine {
       }
     }
 
-    final bundle = await _zipStage(
-      stage: stage,
-      runArtifacts: runArtifacts,
-      remoteFilesMapping: remoteFilesMapping,
-      remoteRunDir: remoteRunDir,
-    );
-    // Keep original mapping: read from vars.json if needed later; for now we
-    // only need it for RunEngine internals, so keep the one in memory.
-    return _PreparedBundleAndRun(
-      run: run,
-      bundleZip: bundle.bundleZip,
-      remoteRunDir: bundle.remoteRunDir,
-      aborted: false,
-    );
+    return _PreparedLocalRun(run: run, aborted: false);
   }
 
   Future<void> _copyDirectory(Directory src, Directory dst) async {
@@ -904,12 +901,16 @@ class RunEngine {
     required ProjectPaths pp,
     required String runId,
     required List<Task> orderedTasks,
-    required Map<String, Map<String, List<String>>> fileInputs,
+    required Map<String, Map<String, List<FileBinding>>> fileInputs,
   }) async {
     final runArtifacts = pp.runArtifactsFor(runId);
     await runArtifacts.create(recursive: true);
 
     final remoteFilesMapping = <String, Map<String, List<String>>>{};
+    final taskIndexById = <String, int>{
+      for (var i = 0; i < orderedTasks.length; i++) orderedTasks[i].id: i,
+    };
+    final taskById = {for (final t in orderedTasks) t.id: t};
 
     for (var taskIndex = 0; taskIndex < orderedTasks.length; taskIndex++) {
       final task = orderedTasks[taskIndex];
@@ -929,7 +930,7 @@ class RunEngine {
       }
 
       for (final slot in task.fileSlots) {
-        final list = taskInputs[slot.name] ?? const <String>[];
+        final list = taskInputs[slot.name] ?? const <FileBinding>[];
         if (slot.required && list.isEmpty) {
           throw AppException(
             code: AppErrorCode.validation,
@@ -969,17 +970,98 @@ class RunEngine {
         );
         await dstDir.create(recursive: true);
 
-        for (final localPath in selected) {
-          final src = File(localPath);
+        for (final binding in selected) {
+          var rawPath = binding.path.trim();
+          if (binding.isLocalOutput) {
+            final sourceId = binding.sourceTaskId;
+            final sourceOutput = binding.sourceOutput;
+            if (sourceId != null) {
+              final sourceTask = taskById[sourceId];
+              if (sourceTask == null || !sourceTask.isLocalScript) {
+                throw AppException(
+                  code: AppErrorCode.validation,
+                  title: '脚本产物来源不合法',
+                  message: '未找到对应的脚本任务：',
+                  suggestion: '请重新选择脚本产物后再执行。',
+                );
+              }
+              final sourceIndex = taskIndexById[sourceId] ?? -1;
+              if (sourceIndex >= taskIndex) {
+                throw AppException(
+                  code: AppErrorCode.validation,
+                  title: '脚本产物顺序不合法',
+                  message: '脚本产物必须来自当前任务之前的脚本任务。',
+                  suggestion: '调整任务顺序后重试。',
+                );
+              }
+              if (rawPath.isEmpty && sourceOutput != null) {
+                final out = _firstWhereOrNull(
+                  sourceTask.outputs,
+                  (o) => o.name == sourceOutput,
+                );
+                if (out != null) {
+                  rawPath = out.path.trim();
+                }
+              }
+            }
+          }
+          if (rawPath.isEmpty) {
+            if (binding.isLocalOutput) {
+              throw AppException(
+                code: AppErrorCode.validation,
+                title: '脚本产物路径为空',
+                message: '脚本产物未配置有效路径。',
+                suggestion: '请检查脚本任务的产物配置。',
+              );
+            }
+            continue;
+          }
+
+          if (binding.isControl) {
+            if (!p.posix.isAbsolute(rawPath)) {
+              throw AppException(
+                code: AppErrorCode.validation,
+                title: '控制端路径不合法',
+                message: '控制端路径必须为绝对路径：$rawPath',
+                suggestion: '使用以 / 开头的绝对路径。',
+              );
+            }
+            remoteFilesMapping
+                .putIfAbsent(task.id, () => <String, List<String>>{})
+                .putIfAbsent(slotName, () => <String>[])
+                .add(rawPath);
+            continue;
+          }
+
+          if (!p.isAbsolute(rawPath)) {
+            throw AppException(
+              code: AppErrorCode.validation,
+              title: '本地路径不合法',
+              message: '本地路径必须为绝对路径：$rawPath',
+              suggestion: '请填写绝对路径，或使用文件选择器。',
+            );
+          }
+
+          final src = File(rawPath);
           if (!await src.exists()) {
             throw AppException(
               code: AppErrorCode.validation,
               title: '输入文件不存在',
-              message: '文件路径不存在：$localPath',
+              message: '文件路径不存在：$rawPath',
               suggestion: '重新选择文件后再执行。',
             );
           }
-          final baseName = p.basename(localPath);
+          if (await FileSystemEntity.type(rawPath) !=
+              FileSystemEntityType.file) {
+            throw AppException(
+              code: AppErrorCode.validation,
+              title: '输入路径不是文件',
+              message: '仅支持文件路径：$rawPath',
+              suggestion: '请选择单个文件后再执行。',
+            );
+          }
+
+          final baseName = p.basename(rawPath);
           final uniqueName = await _pickUniqueName(dstDir, baseName);
           final dst = File(p.join(dstDir.path, uniqueName));
           await src.copy(dst.path);
@@ -1173,6 +1255,13 @@ class _PreparedBundleAndRun {
       aborted: true,
     );
   }
+}
+
+class _PreparedLocalRun {
+  final Run run;
+  final bool aborted;
+
+  const _PreparedLocalRun({required this.run, required this.aborted});
 }
 
 class _PreparedBundle {

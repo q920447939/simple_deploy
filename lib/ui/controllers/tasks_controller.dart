@@ -1,4 +1,5 @@
 import 'package:get/get.dart';
+import 'package:path/path.dart' as p;
 
 import '../../model/file_slot.dart';
 import '../../model/task.dart';
@@ -153,6 +154,40 @@ class TasksController extends GetxController {
       );
     }
 
+    final normalizedOutputs = <TaskOutput>[];
+    final outputNames = <String>{};
+    if (task.type == TaskType.localScript) {
+      for (final o in task.outputs) {
+        final name = o.name.trim();
+        final path = o.path.trim();
+        if (name.isEmpty || !_slotNameRe.hasMatch(name)) {
+          throw const AppException(
+            code: AppErrorCode.validation,
+            title: '产物名不合法',
+            message: '产物名仅支持字母/数字/下划线。',
+            suggestion: '请使用字母/数字/下划线组合。',
+          );
+        }
+        if (!outputNames.add(name)) {
+          throw const AppException(
+            code: AppErrorCode.validation,
+            title: '产物名重复',
+            message: '同一个脚本任务内不允许出现重复的产物名。',
+            suggestion: '修改产物名后重试。',
+          );
+        }
+        if (path.isEmpty || !p.isAbsolute(path)) {
+          throw const AppException(
+            code: AppErrorCode.validation,
+            title: '产物路径不合法',
+            message: '产物路径必须为绝对路径。',
+            suggestion: '请填写绝对路径（如 /abs/path/file.jar）。',
+          );
+        }
+        normalizedOutputs.add(TaskOutput(name: name, path: path));
+      }
+    }
+
     String? playbookId = task.playbookId;
     TaskScript? script = task.script;
     List<FileSlot> slots = normalizedSlots;
@@ -205,6 +240,7 @@ class TasksController extends GetxController {
       script: script,
       fileSlots: slots,
       variables: normalizedVars,
+      outputs: normalizedOutputs,
     );
   }
 

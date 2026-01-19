@@ -4,6 +4,7 @@ import 'package:flutter/material.dart' as m;
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
 import 'package:flutter/services.dart';
+import 'package:path/path.dart' as p;
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
 import '../../../model/file_slot.dart';
@@ -154,6 +155,7 @@ class _TaskSidebar extends StatelessWidget {
           script: imported.script,
           fileSlots: imported.fileSlots,
           variables: imported.variables,
+          outputs: imported.outputs,
         );
         await controller.upsert(newTask);
         if (context.mounted) {
@@ -384,6 +386,7 @@ class _TaskDetail extends StatelessWidget {
         script: task.script,
         fileSlots: List<FileSlot>.from(task.fileSlots),
         variables: List<TaskVariable>.from(task.variables),
+        outputs: List<TaskOutput>.from(task.outputs),
       );
       final created = await showDialog<Task>(
         context: context,
@@ -579,6 +582,27 @@ class _TaskDetail extends StatelessWidget {
                       ),
                     ),
                   ),
+                  SizedBox(height: 16.h),
+                  infoRow(
+                    '产物',
+                    task.outputs.isEmpty
+                        ? Text(
+                            '无',
+                            style: valueStyle.copyWith(color: m.Colors.grey),
+                          )
+                        : Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: task.outputs.map((o) {
+                              return Padding(
+                                padding: EdgeInsets.only(bottom: 4.h),
+                                child: Text(
+                                  '${o.name} = ${o.path}',
+                                  style: valueStyle,
+                                ),
+                              );
+                            }).toList(),
+                          ),
+                  ),
                 ] else ...[
                   infoRow(
                     '文件槽位',
@@ -679,6 +703,7 @@ class _TaskEditDialogState extends State<_TaskEditDialog> {
 
   final List<FileSlot> _slots = <FileSlot>[];
   final List<TaskVariable> _vars = <TaskVariable>[];
+  final List<TaskOutput> _outputs = <TaskOutput>[];
 
   String _type = TaskType.ansiblePlaybook;
   String? _playbookId;
@@ -705,6 +730,7 @@ class _TaskEditDialogState extends State<_TaskEditDialog> {
       _playbookId = i.playbookId;
       _slots.addAll(i.fileSlots);
       _vars.addAll(i.variables);
+      _outputs.addAll(i.outputs);
       final s = i.script;
       if (s != null) {
         _shell = s.shell;
@@ -799,6 +825,58 @@ class _TaskEditDialogState extends State<_TaskEditDialog> {
 
     setState(() {
       _vars.add(r.copyWith(name: name, description: r.description.trim()));
+    });
+  }
+
+  Future<void> _addOutput() async {
+    final r = await showDialog<TaskOutput>(
+      context: context,
+      builder: (context) => const _TaskOutputDialog(),
+    );
+    if (r == null) return;
+    if (!mounted) return;
+
+    final name = r.name.trim();
+    final path = r.path.trim();
+    if (name.isEmpty || !_slotNameRe.hasMatch(name)) {
+      await showAppErrorDialog(
+        context,
+        const AppException(
+          code: AppErrorCode.validation,
+          title: '产物名不合法',
+          message: '产物名仅支持字母/数字/下划线。',
+          suggestion: '请使用字母/数字/下划线组合。',
+        ),
+      );
+      return;
+    }
+    if (!p.isAbsolute(path)) {
+      await showAppErrorDialog(
+        context,
+        const AppException(
+          code: AppErrorCode.validation,
+          title: '产物路径不合法',
+          message: '产物路径必须为绝对路径。',
+          suggestion: '请填写绝对路径（如 /abs/path/file.jar）。',
+        ),
+      );
+      return;
+    }
+    if (_outputs.any((o) => o.name == name)) {
+      await showAppErrorDialog(
+        context,
+        const AppException(
+          code: AppErrorCode.validation,
+          title: '产物名重复',
+          message: '同一个任务内不允许出现重复的产物名。',
+          suggestion: '修改产物名后重试。',
+        ),
+      );
+      return;
+    }
+
+    setState(() {
+      _outputs.add(TaskOutput(name: name, path: path));
     });
   }
 
@@ -900,11 +978,13 @@ class _TaskEditDialogState extends State<_TaskEditDialog> {
                       if (_type == TaskType.localScript) {
                         _playbookId = null;
                         _slots.clear();
+                        _outputs.clear();
                       }
                       if (_type == TaskType.ansiblePlaybook &&
                           _playbookId == null &&
                           widget.playbooks.isNotEmpty) {
                         _playbookId = widget.playbooks.first.id;
+                        _outputs.clear();
                       }
                     });
                   },
@@ -992,6 +1072,40 @@ class _TaskEditDialogState extends State<_TaskEditDialog> {
                           },
                         ),
                 ),
+                if (_type == TaskType.localScript) ...[
+                  SizedBox(height: 16.h),
+                  Row(
+                    children: [
+                      const Expanded(child: Text('产物')),
+                      OutlineButton(
+                        onPressed: _addOutput,
+                        child: const Text('新增产物'),
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: 8.h),
+                  SizedBox(
+                    height: 140.h,
+                    child: _outputs.isEmpty
+                        ? const Center(child: Text('无'))
+                        : m.ListView.builder(
+                            itemCount: _outputs.length,
+                            itemBuilder: (context, i) {
+                              final o = _outputs[i];
+                              return m.ListTile(
+                                title: Text(o.name).mono(),
+                                subtitle: Text(o.path).muted(),
+                                trailing: GhostButton(
+                                  density: ButtonDensity.icon,
+                                  onPressed: () =>
+                                      setState(() => _outputs.removeAt(i)),
+                                  child: const Icon(Icons.close),
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                ],
                 SizedBox(height: 16.h),
                 Row(
                   children: [
@@ -1065,6 +1179,9 @@ class _TaskEditDialogState extends State<_TaskEditDialog> {
                       ? List<FileSlot>.from(_slots)
                       : const <FileSlot>[],
                   variables: List<TaskVariable>.from(_vars),
+                  outputs: _type == TaskType.localScript
+                      ? List<TaskOutput>.from(_outputs)
+                      : const <TaskOutput>[],
                 ),
               );
             } on AppException catch (e) {
@@ -1240,6 +1357,96 @@ class _FileSlotDialogState extends State<_FileSlotDialog> {
             Navigator.of(context).pop(
               FileSlot(name: name, required: _required, multiple: _multiple),
             );
+          },
+          child: const Text('确定'),
+        ),
+      ],
+    );
+  }
+}
+
+class _TaskOutputDialog extends StatefulWidget {
+  const _TaskOutputDialog();
+
+  @override
+  State<_TaskOutputDialog> createState() => _TaskOutputDialogState();
+}
+
+class _TaskOutputDialogState extends State<_TaskOutputDialog> {
+  final m.TextEditingController _name = m.TextEditingController();
+  final m.TextEditingController _path = m.TextEditingController();
+
+  static final RegExp _slotNameRe = RegExp(r'^[A-Za-z0-9_]+$');
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _path.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('新增脚本产物'),
+      content: SizedBox(
+        width: 560.w,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            m.TextField(
+              controller: _name,
+              decoration: const m.InputDecoration(
+                labelText: '产物名',
+                hintText: '例如：artifact / package',
+              ),
+            ),
+            SizedBox(height: 8.h),
+            m.TextField(
+              controller: _path,
+              decoration: const m.InputDecoration(
+                labelText: '产物绝对路径',
+                hintText: '例如：/abs/path/app.jar 或 C:\path\app.jar',
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        OutlineButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('取消'),
+        ),
+        PrimaryButton(
+          onPressed: () async {
+            final name = _name.text.trim();
+            final path = _path.text.trim();
+            if (name.isEmpty || !_slotNameRe.hasMatch(name)) {
+              await showAppErrorDialog(
+                context,
+                const AppException(
+                  code: AppErrorCode.validation,
+                  title: '产物名不合法',
+                  message: '产物名仅支持字母/数字/下划线。',
+                  suggestion: '请使用字母/数字/下划线组合。',
+                ),
+              );
+              return;
+            }
+            if (!p.isAbsolute(path)) {
+              await showAppErrorDialog(
+                context,
+                const AppException(
+                  code: AppErrorCode.validation,
+                  title: '产物路径不合法',
+                  message: '产物路径必须为绝对路径。',
+                  suggestion: '请填写绝对路径（如 /abs/path/file.jar）。',
+                ),
+              );
+              return;
+            }
+            if (!context.mounted) return;
+            Navigator.of(context).pop(TaskOutput(name: name, path: path));
           },
           child: const Text('确定'),
         ),

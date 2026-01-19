@@ -24,7 +24,6 @@ class BatchesStore {
             final p = e.path;
             if (!p.endsWith('.json')) return false;
             // Ignore auxiliary files stored under batches/ (not batch configs).
-            if (p.endsWith('.last_file_inputs.json')) return false;
             return true;
           })
           .cast<File>()
@@ -82,14 +81,6 @@ class BatchesStore {
     try {
       if (await file.exists()) {
         await file.delete();
-      }
-      final inputs = paths.batchLastFileInputsFile(batchId);
-      if (await inputs.exists()) {
-        await inputs.delete();
-      }
-      final legacyInputs = paths.batchLastFileInputsLegacyFile(batchId);
-      if (await legacyInputs.exists()) {
-        await legacyInputs.delete();
       }
       final lock = paths.batchLockFile(batchId);
       if (await lock.exists()) {
