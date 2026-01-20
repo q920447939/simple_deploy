@@ -272,6 +272,18 @@ class _HorizontalTaskProgressBar extends StatelessWidget {
 
   const _HorizontalTaskProgressBar({required this.tasks});
 
+  bool _recapFailedForTask(Run? run, int taskIndex) {
+    final summary = run?.ansibleSummary;
+    if (summary == null) return false;
+    final raw = summary['task_$taskIndex'];
+    if (raw is! Map) return false;
+    final failed = raw['failed'];
+    final unreachable = raw['unreachable'];
+    final failedCount = failed is num ? failed.toInt() : 0;
+    final unreachableCount = unreachable is num ? unreachable.toInt() : 0;
+    return failedCount > 0 || unreachableCount > 0;
+  }
+
   String _formatBytes(int bytes) {
     const units = ['B', 'KB', 'MB', 'GB', 'TB'];
     var size = bytes.toDouble();
@@ -410,7 +422,10 @@ class _HorizontalTaskProgressBar extends StatelessWidget {
                       controller.selectedTaskIndex.value == taskIndex;
 
                   // Status Logic
-                  final status = result?.status ?? TaskExecStatus.waiting;
+                  var status = result?.status ?? TaskExecStatus.waiting;
+                  if (_recapFailedForTask(run, taskIndex)) {
+                    status = TaskExecStatus.failed;
+                  }
                   final color = switch (status) {
                     TaskExecStatus.running => m.Colors.blue,
                     TaskExecStatus.success => m.Colors.green,

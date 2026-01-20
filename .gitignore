@@ -121,3 +121,4 @@ app.*.symbols
 /data/**/run_logs/**
 /data/**/runs/**
 /data/**/run_artifacts/**
+/data/app_logs/**
