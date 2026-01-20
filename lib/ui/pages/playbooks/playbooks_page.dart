@@ -34,7 +34,7 @@ class PlaybooksPage extends StatelessWidget {
                 if (meta == null) {
                   return const Center(child: Text('选择一个 Playbook 查看详情'));
                 }
-                return _PlaybookDetail(meta: meta);
+                return _PlaybookDetail(key: ValueKey(meta.id), meta: meta);
               }),
             ),
           ],
@@ -152,7 +152,7 @@ class _PlaybookSidebar extends StatelessWidget {
             }
             return m.ListView.separated(
               itemCount: items.length,
-              separatorBuilder: (_, __) => const Divider(height: 1),
+              separatorBuilder: (context, index) => const Divider(height: 1),
               itemBuilder: (context, i) {
                 final p = items[i];
                 final selected = controller.selectedId.value == p.id;
@@ -241,7 +241,7 @@ class _PlaybookSidebar extends StatelessWidget {
 class _PlaybookDetail extends StatefulWidget {
   final PlaybookMeta meta;
 
-  const _PlaybookDetail({required this.meta});
+  const _PlaybookDetail({super.key, required this.meta});
 
   @override
   State<_PlaybookDetail> createState() => _PlaybookDetailState();

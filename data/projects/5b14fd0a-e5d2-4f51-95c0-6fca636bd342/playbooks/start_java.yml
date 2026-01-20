@@ -1,0 +1,43 @@
+---
+- name: Deploy firework admin backend
+  hosts: all   # 替换为你的目标主机或主机组
+  become: yes               # 如果需要 root 权限来 kill 进程，请保留
+  vars:
+    app_jar_path: /home/firework/firework_admin_back/firework-admin-back-0.1.0.jar
+    app_log_redirect: /dev/null
+    port: 18080
+
+  tasks:
+    - name: Kill process using port {{ port }}
+      shell: |
+        set -euo pipefail
+        pid=$(lsof -ti :{{ port }})
+        if [ -n "$pid" ]; then
+          kill -9 $pid
+          echo "Killed PID(s): $pid"
+        else
+          echo "No process found on port {{ port }}"
+        fi
+      register: kill_result
+      changed_when: "'Killed PID' in kill_result.stdout"
+
+    - name: Start Java application with nohup
+      shell: |
+        nohup java -jar {{ app_jar_path }} > {{ app_log_redirect }} 2>&1 &
+        echo $! > /tmp/firework_admin.pid
+      args:
+        executable: /bin/bash
+      register: start_result
+
+    - name: Wait for application to start (5 seconds)
+      wait_for:
+        timeout: 5
+
+    - name: Check running processes (ps -ef | grep firework)
+      shell: ps -ef | grep -v grep | grep firework
+      register: ps_result
+      ignore_errors: yes
+
+    - name: Display running process info
+      debug:
+        msg: "{{ ps_result.stdout_lines | default(['No matching process found']) }}"

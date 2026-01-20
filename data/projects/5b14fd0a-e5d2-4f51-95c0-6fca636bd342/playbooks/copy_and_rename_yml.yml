@@ -1,0 +1,16 @@
+---
+- name: Copy local file to remote host and rename it
+  hosts: all
+  gather_facts: false
+  become: yes               # 如果需要 root 权限来 kill 进程，请保留
+  vars:
+    remote_dest_dir: "/home/firework/firework_admin_back"
+    remote_dest_filename: "firework-admin-back-0.1.0.jar"
+    #ansible_python_interpreter: /usr/local/bin/python3.12
+
+  tasks:
+    - name: Copy and rename file
+      ansible.builtin.copy:
+        src: "{{ run_dir }}/{{ task_files.firework_jar[0] }}"
+        dest: "{{ remote_dest_dir }}/{{ remote_dest_filename }}"
+        mode: '0644'

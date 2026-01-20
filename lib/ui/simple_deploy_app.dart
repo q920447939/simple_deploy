@@ -15,12 +15,16 @@ class SimpleDeployApp extends StatelessWidget {
       designSize: const Size(1920, 1080),
       minTextAdapt: true,
       splitScreenMode: true,
+      fontSizeResolver: (fontSize, instance) =>
+          fontSize * instance.scaleText * 0.9,
       builder: (context, child) {
+        final textScale = ScreenUtil().scaleText * 0.9;
         return ShadcnApp(
           title: 'Simple Deploy',
           theme: ThemeData(
             colorScheme: LegacyColorSchemes.darkZinc(),
             radius: 0.7,
+            typography: const Typography.geist().scale(textScale),
           ),
           home: AppShell(subtitle: Text(paths.rootDir.path)),
         );

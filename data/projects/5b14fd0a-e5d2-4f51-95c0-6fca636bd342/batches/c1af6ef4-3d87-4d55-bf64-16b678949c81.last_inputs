@@ -1,0 +1,15 @@
+{
+  "file_inputs": {
+    "b1149564-b358-486f-b8e5-4f97df8e8133": {
+      "firework_jar": [
+        {
+          "type": "local_output",
+          "path": "/mnt/newdisk/work_space/musk/firework_back/firework_admin_back/target/firework-admin-back-0.1.0.jar",
+          "source_task_id": "b5a081f3-d004-4ada-9b6c-ac5b0b1cd2bb",
+          "source_output": "firework"
+        }
+      ]
+    }
+  },
+  "vars": {}
+}

@@ -360,7 +360,8 @@ class BatchesController extends GetxController {
       maxLines: currentMaxLines,
       maxBytes: _maxBytesForLines(currentMaxLines),
     );
-    currentLogLines.assignAll(const LineSplitter().convert(raw));
+    final lines = const LineSplitter().convert(raw);
+    currentLogLines.assignAll(_filterLogLines(lines));
 
     _lastRenderedRunId = currentRunId;
     _lastRenderedTaskIndex = currentTaskIndex;
@@ -397,8 +398,9 @@ class BatchesController extends GetxController {
 
     final raw = await AtomicFile.readJsonOrNull(file);
     if (raw is Map) {
-      uploadProgress.value =
-          UploadProgress.fromJson(raw.cast<String, Object?>());
+      uploadProgress.value = UploadProgress.fromJson(
+        raw.cast<String, Object?>(),
+      );
     } else {
       uploadProgress.value = null;
     }
@@ -518,6 +520,28 @@ class BatchesController extends GetxController {
     } finally {
       await raf.close();
     }
+  }
+
+  static List<String> _filterLogLines(List<String> lines) {
+    final out = <String>[];
+    for (final line in lines) {
+      if (_isNoisyLine(line)) continue;
+      out.add(line);
+    }
+    return out;
+  }
+
+  static bool _isNoisyLine(String line) {
+    final trimmed = line.trimRight();
+    if (trimmed.contains('zip_data')) return true;
+    if (trimmed.length > 5000 && _looksLikeBase64(trimmed)) return true;
+    return false;
+  }
+
+  static bool _looksLikeBase64(String text) {
+    if (text.length < 200) return false;
+    final base64Re = RegExp(r'^[A-Za-z0-9+/=]+$');
+    return base64Re.hasMatch(text);
   }
 
   Future<void> startRunWithInputs(

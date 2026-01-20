@@ -340,15 +340,30 @@ class RunEngine {
               }
             }
           }
+
           final writerFuture = writer();
+          final logSanitizer = _LogSanitizer();
+          var logClosed = false;
+          Future<void> closeLog() async {
+            if (logClosed) return;
+            logClosed = true;
+            await logQueue.close();
+            await writerFuture;
+            await sink.flush();
+            await sink.close();
+          }
+
           void pushLog(String chunk) {
             if (logQueue.isClosed) return;
+            final sanitized = logSanitizer.process(chunk);
+            if (sanitized.isEmpty) return;
             try {
-              logQueue.add(chunk);
+              logQueue.add(sanitized);
             } on StateError {
               // Ignore late logs after close.
             }
           }
+
           try {
             final remotePlaybookPath = p.posix.normalize(playbook.relativePath);
             final remoteCmd = _taskCommand(
@@ -367,8 +382,28 @@ class RunEngine {
               onStdout: pushLog,
               onStderr: pushLog,
             );
+            final tail = logSanitizer.flush();
+            if (tail.isNotEmpty) {
+              pushLog(tail);
+            }
+            await closeLog();
 
-            if (exit == 0) {
+            final recap = await _parseAnsibleRecapFromLog(localLog);
+            if (recap != null) {
+              run = run.copyWith(
+                ansibleSummary: _mergeAnsibleSummary(
+                  run.ansibleSummary,
+                  taskIndex: i,
+                  recap: recap,
+                ),
+              );
+              await runsStore.write(run);
+            }
+
+            final recapFailed = recap?.hasFailure ?? false;
+            final effectiveExit = exit == 0 && recapFailed ? 2 : exit;
+
+            if (effectiveExit == 0) {
               run = _setTaskResult(
                 run,
                 taskIndex: i,
@@ -380,29 +415,34 @@ class RunEngine {
               await runsStore.write(run);
               continue;
             } else {
+              final recapInfo = recapFailed
+                  ? 'recap failed=${recap?.totalFailed ?? 0} unreachable=${recap?.totalUnreachable ?? 0}'
+                  : null;
+              final errMsg = exit == 0 && recapFailed
+                  ? 'ansible-playbook recap failed ($recapInfo)'
+                  : 'ansible-playbook exit=$exit';
               run = _setTaskResult(
                 run,
                 taskIndex: i,
                 result: run.taskResults[i].copyWith(
                   status: TaskExecStatus.failed,
-                  exitCode: exit,
-                  error: 'ansible-playbook exit=$exit',
+                  exitCode: effectiveExit,
+                  error: errMsg,
                 ),
               );
               run = run.copyWith(
                 status: RunStatus.ended,
                 result: RunResult.failed,
                 endedAt: DateTime.now(),
-                errorSummary: '任务失败：${task.name} (exit=$exit)',
+                errorSummary: recapFailed && exit == 0
+                    ? '任务失败：${task.name} (${recapInfo ?? "recap failed"})'
+                    : '任务失败：${task.name} (exit=$exit)',
               );
               await runsStore.write(run);
               return;
             }
           } finally {
-            await logQueue.close();
-            await writerFuture;
-            await sink.flush();
-            await sink.close();
+            await closeLog();
           }
         }
 
@@ -662,7 +702,8 @@ class RunEngine {
           'name': t.name,
           'type': t.type,
         },
-        'task_files': remoteFilesMapping[t.id] ?? const <String, List<String>>{},
+        'task_files':
+            remoteFilesMapping[t.id] ?? const <String, List<String>>{},
       };
       final eff = effectiveVarsByTaskId[t.id];
       if (eff != null) {
@@ -696,8 +737,9 @@ class RunEngine {
     final zipSize = await zip.length();
     // An empty zip is exactly 22 bytes (end of central directory record only).
     if (zipSize <= 22) {
-      final stageEntries =
-          stage.listSync(recursive: true, followLinks: true).length;
+      final stageEntries = stage
+          .listSync(recursive: true, followLinks: true)
+          .length;
       throw AppException(
         code: AppErrorCode.storageIo,
         title: '生成 bundle.zip 失败',
@@ -764,7 +806,9 @@ class RunEngine {
           return _PreparedLocalRun(run: run, aborted: true);
         }
 
-        final shell = script.shell.trim().isEmpty ? 'bash' : script.shell.trim();
+        final shell = script.shell.trim().isEmpty
+            ? 'bash'
+            : script.shell.trim();
         if (shell != 'bash' && shell != 'sh') {
           sink.writeln('[local_script] unsupported shell=$shell');
           run = _setTaskResult(
@@ -786,11 +830,15 @@ class RunEngine {
           return _PreparedLocalRun(run: run, aborted: true);
         }
 
-        final scriptsDir = Directory(p.join(runArtifacts.path, 'local_scripts'));
+        final scriptsDir = Directory(
+          p.join(runArtifacts.path, 'local_scripts'),
+        );
         await scriptsDir.create(recursive: true);
         final scriptFile = File(p.join(scriptsDir.path, 'task_$i.$shell'));
         await scriptFile.writeAsString(
-          script.content.endsWith('\n') ? script.content : '${script.content}\n',
+          script.content.endsWith('\n')
+              ? script.content
+              : '${script.content}\n',
           flush: true,
         );
 
@@ -1154,6 +1202,74 @@ class RunEngine {
 
   static String _dq(String s) => '"${_bashEscape(s)}"';
 
+  static Map<String, Object?> _mergeAnsibleSummary(
+    Map<String, Object?>? existing, {
+    required int taskIndex,
+    required _AnsibleRecap recap,
+  }) {
+    final next = Map<String, Object?>.from(existing ?? const {});
+    next['task_$taskIndex'] = recap.toJson();
+    return next;
+  }
+
+  Future<_AnsibleRecap?> _parseAnsibleRecapFromLog(File logFile) async {
+    if (!await logFile.exists()) return null;
+    final tail = await _readTail(logFile, 256 * 1024);
+    return _parseAnsibleRecapText(tail);
+  }
+
+  static _AnsibleRecap? _parseAnsibleRecapText(String text) {
+    final lines = const LineSplitter().convert(text);
+    var start = -1;
+    for (var i = 0; i < lines.length; i++) {
+      final line = lines[i].trim();
+      if (line.startsWith('PLAY RECAP')) {
+        start = i;
+      }
+    }
+    if (start < 0) return null;
+
+    final hosts = <String, Map<String, int>>{};
+    for (var i = start + 1; i < lines.length; i++) {
+      final line = lines[i].trim();
+      if (line.isEmpty) continue;
+      if (line.startsWith('PLAY ') && !line.startsWith('PLAY RECAP')) {
+        break;
+      }
+      final colon = line.indexOf(':');
+      if (colon <= 0) continue;
+      final host = line.substring(0, colon).trim();
+      final statsPart = line.substring(colon + 1);
+      final matches = RegExp(r'(\\w+)=(\\d+)').allMatches(statsPart);
+      if (matches.isEmpty) continue;
+      final stats = <String, int>{};
+      for (final m in matches) {
+        final key = m.group(1);
+        final val = m.group(2);
+        if (key == null || val == null) continue;
+        stats[key] = int.tryParse(val) ?? 0;
+      }
+      if (stats.isNotEmpty) {
+        hosts[host] = stats;
+      }
+    }
+    if (hosts.isEmpty) return null;
+    return _AnsibleRecap.fromHosts(hosts);
+  }
+
+  static Future<String> _readTail(File file, int maxBytes) async {
+    final raf = await file.open();
+    try {
+      final len = await raf.length();
+      final start = len > maxBytes ? len - maxBytes : 0;
+      await raf.setPosition(start);
+      final bytes = await raf.read(len - start);
+      return utf8.decode(bytes, allowMalformed: true);
+    } finally {
+      await raf.close();
+    }
+  }
+
   static T? _firstWhereOrNull<T>(Iterable<T> items, bool Function(T) test) {
     for (final x in items) {
       if (test(x)) return x;
@@ -1237,8 +1353,7 @@ class RunEngine {
 
     void maybeWriteProgress(UploadProgress next, {bool force = false}) {
       final now = DateTime.now();
-      if (!force &&
-          now.difference(lastWriteAt).inMilliseconds < 200) {
+      if (!force && now.difference(lastWriteAt).inMilliseconds < 200) {
         return;
       }
       lastWriteAt = now;
@@ -1248,8 +1363,7 @@ class RunEngine {
 
     try {
       for (var attempt = 1; attempt <= 2; attempt++) {
-        final attemptLabel =
-            attempt == 1 ? label : '$label (重试 $attempt/2)';
+        final attemptLabel = attempt == 1 ? label : '$label (重试 $attempt/2)';
         progress = progress.copyWith(
           status: UploadProgressStatus.running,
           sent: 0,
@@ -1293,7 +1407,7 @@ class RunEngine {
           },
         );
       }
-    } on Object catch (e) {
+    } on Object {
       progress = progress.copyWith(
         status: UploadProgressStatus.failed,
         message: '$label 上传失败',
@@ -1347,18 +1461,6 @@ class _PreparedBundleAndRun {
     required this.remoteRunDir,
     required this.aborted,
   });
-
-  factory _PreparedBundleAndRun.aborted({
-    required Run run,
-    required String remoteRunDir,
-  }) {
-    return _PreparedBundleAndRun(
-      run: run,
-      bundleZip: null,
-      remoteRunDir: remoteRunDir,
-      aborted: true,
-    );
-  }
 }
 
 class _PreparedLocalRun {
@@ -1378,4 +1480,86 @@ class _PreparedBundle {
     required this.remoteRunDir,
     required this.filesMapping,
   });
+}
+
+class _LogSanitizer {
+  String _pending = '';
+
+  String process(String chunk) {
+    final combined = '$_pending$chunk';
+    final parts = combined.split('\n');
+    _pending = parts.removeLast();
+    if (parts.isEmpty) return '';
+    final out = StringBuffer();
+    for (final line in parts) {
+      final filtered = _filterLine(line);
+      if (filtered == null) continue;
+      out.writeln(filtered);
+    }
+    return out.toString();
+  }
+
+  String flush() {
+    if (_pending.isEmpty) return '';
+    final filtered = _filterLine(_pending);
+    _pending = '';
+    if (filtered == null) return '';
+    return '$filtered\n';
+  }
+
+  String? _filterLine(String line) {
+    final trimmed = line.trimRight();
+    if (trimmed.isEmpty) return line;
+    if (trimmed.contains('zip_data')) {
+      return '[已省略 zip_data]';
+    }
+    if (trimmed.length > 5000 && _looksLikeBase64(trimmed)) {
+      return '[已省略 base64 数据]';
+    }
+    return line;
+  }
+
+  bool _looksLikeBase64(String line) {
+    if (line.length < 200) return false;
+    final base64Re = RegExp(r'^[A-Za-z0-9+/=]+$');
+    return base64Re.hasMatch(line);
+  }
+}
+
+class _AnsibleRecap {
+  final Map<String, Map<String, int>> hosts;
+  final int totalFailed;
+  final int totalUnreachable;
+
+  const _AnsibleRecap({
+    required this.hosts,
+    required this.totalFailed,
+    required this.totalUnreachable,
+  });
+
+  factory _AnsibleRecap.fromHosts(Map<String, Map<String, int>> hosts) {
+    var failed = 0;
+    var unreachable = 0;
+    for (final stats in hosts.values) {
+      failed += stats['failed'] ?? 0;
+      unreachable += stats['unreachable'] ?? 0;
+    }
+    return _AnsibleRecap(
+      hosts: hosts,
+      totalFailed: failed,
+      totalUnreachable: unreachable,
+    );
+  }
+
+  bool get hasFailure => totalFailed > 0 || totalUnreachable > 0;
+
+  Map<String, Object?> toJson() {
+    return {
+      'failed': totalFailed,
+      'unreachable': totalUnreachable,
+      'hosts': hosts.map(
+        (host, stats) => MapEntry(host, stats.map((k, v) => MapEntry(k, v))),
+      ),
+    };
+  }
 }

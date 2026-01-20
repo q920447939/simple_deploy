@@ -157,7 +157,7 @@ class _ServerSidebar extends StatelessWidget {
             }
             return m.ListView.separated(
               itemCount: items.length,
-              separatorBuilder: (_, __) => const Divider(height: 1),
+              separatorBuilder: (context, index) => const Divider(height: 1),
               itemBuilder: (context, i) {
                 final s = items[i];
                 final selected = controller.selectedId.value == s.id;

@@ -1,0 +1,16 @@
+[
+  {
+    "id": "f263cef5-0813-4852-ba69-85802dd9be85",
+    "name": "复制和重命名",
+    "description": "",
+    "relative_path": "playbooks/copy_and_rename_yml.yml",
+    "updated_at": "2026-01-20T08:36:13.424589"
+  },
+  {
+    "id": "fd56896c-6db2-4b57-a788-c57eccc6937a",
+    "name": "启动",
+    "description": "",
+    "relative_path": "playbooks/start_java.yml",
+    "updated_at": "2026-01-19T20:09:52.106828"
+  }
+]

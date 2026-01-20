@@ -247,7 +247,7 @@ class _TaskSidebar extends StatelessWidget {
             }
             return m.ListView.separated(
               itemCount: items.length,
-              separatorBuilder: (_, __) => const Divider(height: 1),
+              separatorBuilder: (context, index) => const Divider(height: 1),
               itemBuilder: (context, i) {
                 final t = items[i];
                 final selected = controller.selectedId.value == t.id;
@@ -1401,7 +1401,7 @@ class _TaskOutputDialogState extends State<_TaskOutputDialog> {
               controller: _path,
               decoration: const m.InputDecoration(
                 labelText: '产物绝对路径',
-                hintText: '例如：/abs/path/app.jar 或 C:\path\app.jar',
+                hintText: r'例如：/abs/path/app.jar 或 C:\path\app.jar',
               ),
             ),
           ],

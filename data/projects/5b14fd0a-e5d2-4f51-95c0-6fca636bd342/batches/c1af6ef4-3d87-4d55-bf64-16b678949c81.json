@@ -1,0 +1,18 @@
+{
+  "id": "c1af6ef4-3d87-4d55-bf64-16b678949c81",
+  "name": "部署firework",
+  "description": "",
+  "status": "ended",
+  "control_server_id": "adf11357-0ebb-403e-b0bd-3fd736336afe",
+  "managed_server_ids": [
+    "e8514cbc-e56b-476c-a31c-5fd02dd4e3e6"
+  ],
+  "task_order": [
+    "b5a081f3-d004-4ada-9b6c-ac5b0b1cd2bb",
+    "b1149564-b358-486f-b8e5-4f97df8e8133",
+    "34b369c6-0e9b-44fa-93ea-57ae4523a68d"
+  ],
+  "created_at": "2026-01-19T18:36:21.008184",
+  "updated_at": "2026-01-20T10:33:56.535141",
+  "last_run_id": "cff340f3-8d8d-4aa4-bfe2-7f9556533644"
+}

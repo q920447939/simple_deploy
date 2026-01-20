@@ -336,17 +336,11 @@ class _HorizontalTaskProgressBar extends StatelessWidget {
             children: [
               Text(
                 title,
-                style: TextStyle(
-                  fontSize: 12.sp,
-                  fontWeight: FontWeight.w500,
-                ),
+                style: TextStyle(fontSize: 12.sp, fontWeight: FontWeight.w500),
               ),
               Text(
                 '$statusText · $detail',
-                style: TextStyle(
-                  fontSize: 10.sp,
-                  color: color,
-                ),
+                style: TextStyle(fontSize: 10.sp, color: color),
               ),
             ],
           ),
@@ -405,7 +399,7 @@ class _HorizontalTaskProgressBar extends StatelessWidget {
                 },
                 itemBuilder: (context, index) {
                   if (hasUpload && index == 0) {
-                    return _buildUploadItem(context, upload!);
+                    return _buildUploadItem(context, upload);
                   }
                   final taskIndex = hasUpload ? index - 1 : index;
                   final task = tasks[taskIndex];
@@ -481,24 +475,24 @@ class _HorizontalTaskProgressBar extends StatelessWidget {
                                   fontWeight: FontWeight.w500,
                                 ),
                               ),
-                          if (run == null)
-                            Text(
-                              '未执行',
-                              style: TextStyle(
-                                fontSize: 10.sp,
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.mutedForeground,
-                              ),
-                            )
-                          else if (result?.exitCode != null)
-                            Text(
-                              'Exit: ${result!.exitCode}',
-                              style: TextStyle(
-                                fontSize: 10.sp,
-                                color: color,
-                              ),
-                            ),
+                              if (run == null)
+                                Text(
+                                  '未执行',
+                                  style: TextStyle(
+                                    fontSize: 10.sp,
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.mutedForeground,
+                                  ),
+                                )
+                              else if (result?.exitCode != null)
+                                Text(
+                                  'Exit: ${result!.exitCode}',
+                                  style: TextStyle(
+                                    fontSize: 10.sp,
+                                    color: color,
+                                  ),
+                                ),
                             ],
                           ),
                           if (status == TaskExecStatus.running) ...[
@@ -616,6 +610,7 @@ class _BatchSidebarState extends State<_BatchSidebar> {
         return;
       }
 
+      if (!context.mounted) return;
       final check = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
@@ -633,6 +628,7 @@ class _BatchSidebarState extends State<_BatchSidebar> {
           ],
         ),
       );
+      if (!context.mounted) return;
       if (check != true) return;
 
       try {
@@ -910,7 +906,7 @@ class _TabBtn extends StatelessWidget {
                       ? m.Theme.of(context).colorScheme.primary
                       : m.Theme.of(
                           context,
-                        ).colorScheme.onSurface.withOpacity(0.5),
+                        ).colorScheme.onSurface.withValues(alpha: 0.5),
                 ),
                 SizedBox(width: 8.w),
                 Text(
@@ -925,7 +921,7 @@ class _TabBtn extends StatelessWidget {
                         ? m.Theme.of(context).colorScheme.primary
                         : m.Theme.of(
                             context,
-                          ).colorScheme.onSurface.withOpacity(0.6),
+                          ).colorScheme.onSurface.withValues(alpha: 0.6),
                   ),
                 ),
               ],
@@ -1294,7 +1290,9 @@ class _BatchLogAreaState extends State<_BatchLogArea> {
                   return Center(
                     child: Text(
                       'No logs available',
-                      style: TextStyle(color: m.Colors.white.withOpacity(0.3)),
+                      style: TextStyle(
+                        color: m.Colors.white.withValues(alpha: 0.3),
+                      ),
                     ),
                   );
                 }
@@ -1309,8 +1307,7 @@ class _BatchLogAreaState extends State<_BatchLogArea> {
                       style: TextStyle(
                         fontFamily: 'GeistMono',
                         fontSize: 13.sp,
-                        // ignore: deprecated_member_use
-                        color: m.Colors.white.withOpacity(0.9),
+                        color: m.Colors.white.withValues(alpha: 0.9),
                         height: 1.4,
                       ),
                     );
@@ -1987,7 +1984,7 @@ class _BatchInputsDialogState extends State<_BatchInputsDialog> {
 
   Future<void> _addLocalPath(Task task, FileSlot slot) async {
     final path = await _promptPath(
-      title: '输入本地路径：' + task.name + ' / ' + slot.name,
+      title: '输入本地路径：${task.name} / ${slot.name}',
       hintText: '例如：/home/user/package.tar.gz 或 C:\\path\\file.zip',
     );
     if (path == null || path.trim().isEmpty) return;
@@ -2011,7 +2008,7 @@ class _BatchInputsDialogState extends State<_BatchInputsDialog> {
 
   Future<void> _addControlPath(Task task, FileSlot slot) async {
     final path = await _promptPath(
-      title: '输入控制端路径：' + task.name + ' / ' + slot.name,
+      title: '输入控制端路径：${task.name} / ${slot.name}',
       hintText: '例如：/opt/packages/app.tar.gz',
     );
     if (path == null || path.trim().isEmpty) return;
@@ -2087,7 +2084,7 @@ class _BatchInputsDialogState extends State<_BatchInputsDialog> {
               itemBuilder: (context, i) {
                 final o = options[i];
                 return m.ListTile(
-                  title: Text(o.task.name + ' / ' + o.output.name),
+                  title: Text('${o.task.name} / ${o.output.name}'),
                   subtitle: Text(o.output.path).muted(),
                   onTap: () => Navigator.of(context).pop(
                     FileBinding(
@@ -2279,11 +2276,11 @@ class _SlotRow extends StatelessWidget {
         final name = b.sourceOutput == null || b.sourceOutput!.trim().isEmpty
             ? b.path
             : b.sourceOutput!;
-        return '产物: ' + name;
+        return '产物: $name';
       }
       final prefix = b.isControl ? '控制端' : '本地';
       final name = b.isControl ? b.path : p.basename(b.path);
-      return prefix + ': ' + name;
+      return '$prefix: $name';
     }
 
     return Column(
