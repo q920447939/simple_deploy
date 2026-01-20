@@ -10,6 +10,7 @@ import '../../model/run.dart';
 import '../../model/run_inputs.dart';
 import '../../model/server.dart';
 import '../../model/task.dart';
+import '../../model/upload_progress.dart';
 import '../../services/app_services.dart';
 import '../../services/core/app_error.dart';
 import '../../services/core/app_logger.dart';
@@ -39,6 +40,7 @@ class BatchesController extends GetxController {
   final RxList<String> currentLogLines = <String>[].obs;
   final RxInt logMaxLines = 2000.obs;
   final RxnInt currentLogFileSize = RxnInt();
+  final Rxn<UploadProgress> uploadProgress = Rxn<UploadProgress>();
 
   Timer? _poller;
   bool _ticking = false;
@@ -49,6 +51,8 @@ class BatchesController extends GetxController {
   String? _lastRenderedRunId;
   int? _lastRenderedTaskIndex;
   String? _lastBatchId;
+  String? _lastUploadProgressRunId;
+  DateTime? _lastUploadProgressMtime;
 
   AppLogger get _logger => AppServices.I.logger;
 
@@ -93,6 +97,8 @@ class BatchesController extends GetxController {
       _resetLogView();
       // ignore: unawaited_futures
       refreshLog();
+      // ignore: unawaited_futures
+      refreshUploadProgress();
     });
     ever<int>(selectedTaskIndex, (_) {
       _resetLogView();
@@ -124,6 +130,9 @@ class BatchesController extends GetxController {
       _lastBatchId = null;
       currentLogLines.clear();
       lastRunByBatchId.clear();
+      uploadProgress.value = null;
+      _lastUploadProgressRunId = null;
+      _lastUploadProgressMtime = null;
       return;
     }
     final svc = AppServices.I;
@@ -165,6 +174,9 @@ class BatchesController extends GetxController {
       userPinnedRun.value = false;
       userPinnedTask.value = false;
       currentLogLines.clear();
+      uploadProgress.value = null;
+      _lastUploadProgressRunId = null;
+      _lastUploadProgressMtime = null;
       _lastBatchId = null;
       return;
     }
@@ -175,6 +187,9 @@ class BatchesController extends GetxController {
       bulkSelectedRunIds.clear();
       userPinnedRun.value = false;
       userPinnedTask.value = false;
+      uploadProgress.value = null;
+      _lastUploadProgressRunId = null;
+      _lastUploadProgressMtime = null;
     }
     final list = await AppServices.I.runsStore(pid).listByBatch(batch.id);
     runs.assignAll(list);
@@ -203,6 +218,9 @@ class BatchesController extends GetxController {
       userPinnedRun.value = false;
       userPinnedTask.value = false;
       currentLogLines.clear();
+      uploadProgress.value = null;
+      _lastUploadProgressRunId = null;
+      _lastUploadProgressMtime = null;
       return;
     }
 
@@ -220,6 +238,7 @@ class BatchesController extends GetxController {
       }
     }
     await refreshLog();
+    await refreshUploadProgress();
   }
 
   Run? get selectedRun {
@@ -349,6 +368,44 @@ class BatchesController extends GetxController {
     _lastRenderedLogBytes = len;
   }
 
+  Future<void> refreshUploadProgress() async {
+    final pid = projectId;
+    final run = selectedRun;
+    if (pid == null || run == null) {
+      uploadProgress.value = null;
+      _lastUploadProgressRunId = null;
+      _lastUploadProgressMtime = null;
+      return;
+    }
+
+    final pp = AppServices.I.projectPaths(pid);
+    final file = pp.runUploadProgressFile(run.id);
+    final exists = await file.exists();
+    if (!exists) {
+      uploadProgress.value = null;
+      _lastUploadProgressRunId = run.id;
+      _lastUploadProgressMtime = null;
+      return;
+    }
+
+    final stat = await file.stat();
+    if (_lastUploadProgressRunId == run.id &&
+        _lastUploadProgressMtime != null &&
+        stat.modified.isAtSameMomentAs(_lastUploadProgressMtime!)) {
+      return;
+    }
+
+    final raw = await AtomicFile.readJsonOrNull(file);
+    if (raw is Map) {
+      uploadProgress.value =
+          UploadProgress.fromJson(raw.cast<String, Object?>());
+    } else {
+      uploadProgress.value = null;
+    }
+    _lastUploadProgressRunId = run.id;
+    _lastUploadProgressMtime = stat.modified;
+  }
+
   Future<void> loadMoreLog() async {
     logMaxLines.value = (logMaxLines.value + 2000).clamp(2000, 20000);
     await refreshLog();
@@ -381,6 +438,7 @@ class BatchesController extends GetxController {
       await loadRuns();
 
       await refreshLog();
+      await refreshUploadProgress();
 
       // 批次列表轮询频率低一点，避免 IO 过于频繁。
       _tickCount++;
@@ -561,6 +619,9 @@ class BatchesController extends GetxController {
       userPinnedRun.value = false;
       userPinnedTask.value = false;
       _resetLogView();
+      uploadProgress.value = null;
+      _lastUploadProgressRunId = null;
+      _lastUploadProgressMtime = null;
     }
     await loadRuns();
   }

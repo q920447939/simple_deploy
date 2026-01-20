@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -12,8 +13,10 @@ import '../../model/run.dart';
 import '../../model/run_inputs.dart';
 import '../../model/server.dart';
 import '../../model/task.dart';
+import '../../model/upload_progress.dart';
 import '../../services/core/app_error.dart';
 import '../../services/core/app_logger.dart';
+import '../../storage/atomic_file.dart';
 import '../../storage/batch_lock.dart';
 import '../../storage/batches_store.dart';
 import '../../storage/playbooks_store.dart';
@@ -282,6 +285,9 @@ class RunEngine {
           local: zipPrepared.bundleZip!,
           remote: '${zipPrepared.remoteRunDir}/bundle.zip',
           title: '上传 bundle.zip 失败',
+          pp: pp,
+          runId: runId,
+          progressLabel: '传输文件',
         );
         await _requireRemoteOk(
           conn,
@@ -322,7 +328,27 @@ class RunEngine {
           final localLog = pp.taskLogFile(runId, i);
           await localLog.parent.create(recursive: true);
           final sink = localLog.openWrite(mode: FileMode.writeOnlyAppend);
-          var buffered = 0;
+          final logQueue = StreamController<String>();
+          Future<void> writer() async {
+            var buffered = 0;
+            await for (final chunk in logQueue.stream) {
+              sink.write(chunk);
+              buffered += chunk.length;
+              if (buffered >= 4096) {
+                buffered = 0;
+                await sink.flush();
+              }
+            }
+          }
+          final writerFuture = writer();
+          void pushLog(String chunk) {
+            if (logQueue.isClosed) return;
+            try {
+              logQueue.add(chunk);
+            } on StateError {
+              // Ignore late logs after close.
+            }
+          }
           try {
             final remotePlaybookPath = p.posix.normalize(playbook.relativePath);
             final remoteCmd = _taskCommand(
@@ -338,24 +364,8 @@ class RunEngine {
 
             final exit = await conn.execStream(
               remoteCmd,
-              onStdout: (chunk) {
-                sink.write(chunk);
-                buffered += chunk.length;
-                if (buffered >= 4096) {
-                  buffered = 0;
-                  // ignore: unawaited_futures
-                  sink.flush();
-                }
-              },
-              onStderr: (chunk) {
-                sink.write(chunk);
-                buffered += chunk.length;
-                if (buffered >= 4096) {
-                  buffered = 0;
-                  // ignore: unawaited_futures
-                  sink.flush();
-                }
-              },
+              onStdout: pushLog,
+              onStderr: pushLog,
             );
 
             if (exit == 0) {
@@ -389,6 +399,8 @@ class RunEngine {
               return;
             }
           } finally {
+            await logQueue.close();
+            await writerFuture;
             await sink.flush();
             await sink.close();
           }
@@ -1165,11 +1177,32 @@ class RunEngine {
     }
   }
 
+  Future<void> _writeUploadProgress(
+    ProjectPaths pp,
+    String runId,
+    UploadProgress progress,
+  ) async {
+    try {
+      await AtomicFile.writeJson(
+        pp.runUploadProgressFile(runId),
+        progress.toJson(),
+      );
+    } on Object catch (e) {
+      logger.warn(
+        'run.upload.progress.write_failed',
+        data: {'run_id': runId, 'error': e.toString()},
+      );
+    }
+  }
+
   Future<void> _uploadFileWithVerify(
     SshConnection conn, {
     required File local,
     required String remote,
     required String title,
+    required ProjectPaths pp,
+    required String runId,
+    String? progressLabel,
   }) async {
     final localSize = await local.length();
     if (localSize <= 0) {
@@ -1181,6 +1214,19 @@ class RunEngine {
       );
     }
 
+    final label = progressLabel?.trim().isNotEmpty == true
+        ? progressLabel!.trim()
+        : p.basename(local.path);
+    var lastWriteAt = DateTime.fromMillisecondsSinceEpoch(0);
+    UploadProgress progress = UploadProgress(
+      status: UploadProgressStatus.running,
+      sent: 0,
+      total: localSize,
+      message: label,
+      updatedAt: DateTime.now(),
+    );
+    await _writeUploadProgress(pp, runId, progress);
+
     Future<int?> readRemoteSize() async {
       final r = await conn.execWithResult(
         'bash -lc "test -f ${_dq(remote)} && wc -c < ${_dq(remote)}"',
@@ -1189,25 +1235,83 @@ class RunEngine {
       return int.tryParse(r.stdout.trim());
     }
 
-    for (var attempt = 1; attempt <= 2; attempt++) {
-      await conn.uploadFile(local, remote);
-      final remoteSize = await readRemoteSize();
-      if (remoteSize == localSize) {
+    void maybeWriteProgress(UploadProgress next, {bool force = false}) {
+      final now = DateTime.now();
+      if (!force &&
+          now.difference(lastWriteAt).inMilliseconds < 200) {
         return;
       }
-      logger.warn(
-        'run.bundle.upload.size_mismatch',
-        data: {
-          'attempt': attempt,
-          'local': local.path,
-          'local_size': localSize,
-          'remote': remote,
-          'remote_size': remoteSize,
-        },
+      lastWriteAt = now;
+      // ignore: unawaited_futures
+      unawaited(_writeUploadProgress(pp, runId, next));
+    }
+
+    try {
+      for (var attempt = 1; attempt <= 2; attempt++) {
+        final attemptLabel =
+            attempt == 1 ? label : '$label (重试 $attempt/2)';
+        progress = progress.copyWith(
+          status: UploadProgressStatus.running,
+          sent: 0,
+          total: localSize,
+          message: attemptLabel,
+          updatedAt: DateTime.now(),
+        );
+        maybeWriteProgress(progress, force: true);
+
+        await conn.uploadFile(
+          local,
+          remote,
+          onProgress: (sent, total) {
+            progress = progress.copyWith(
+              sent: sent,
+              total: total > 0 ? total : localSize,
+              updatedAt: DateTime.now(),
+            );
+            maybeWriteProgress(progress);
+          },
+        );
+        final remoteSize = await readRemoteSize();
+        if (remoteSize == localSize) {
+          progress = progress.copyWith(
+            status: UploadProgressStatus.success,
+            sent: localSize,
+            total: localSize,
+            updatedAt: DateTime.now(),
+          );
+          await _writeUploadProgress(pp, runId, progress);
+          return;
+        }
+        logger.warn(
+          'run.bundle.upload.size_mismatch',
+          data: {
+            'attempt': attempt,
+            'local': local.path,
+            'local_size': localSize,
+            'remote': remote,
+            'remote_size': remoteSize,
+          },
+        );
+      }
+    } on Object catch (e) {
+      progress = progress.copyWith(
+        status: UploadProgressStatus.failed,
+        message: '$label 上传失败',
+        updatedAt: DateTime.now(),
       );
+      await _writeUploadProgress(pp, runId, progress);
+      rethrow;
     }
 
     final finalRemoteSize = await readRemoteSize();
+    progress = progress.copyWith(
+      status: UploadProgressStatus.failed,
+      sent: localSize,
+      total: localSize,
+      message: '$label 上传失败',
+      updatedAt: DateTime.now(),
+    );
+    await _writeUploadProgress(pp, runId, progress);
     throw AppException(
       code: AppErrorCode.storageIo,
       title: title,

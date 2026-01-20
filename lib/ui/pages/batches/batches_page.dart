@@ -14,6 +14,7 @@ import '../../../model/run.dart';
 import '../../../model/run_inputs.dart';
 import '../../../model/server.dart';
 import '../../../model/task.dart';
+import '../../../model/upload_progress.dart';
 import '../../../services/app_services.dart';
 import '../../../services/core/app_error.dart';
 import '../../../services/ssh/ssh_service.dart';
@@ -271,6 +272,97 @@ class _HorizontalTaskProgressBar extends StatelessWidget {
 
   const _HorizontalTaskProgressBar({required this.tasks});
 
+  String _formatBytes(int bytes) {
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    var size = bytes.toDouble();
+    var unit = 0;
+    while (size >= 1024 && unit < units.length - 1) {
+      size /= 1024;
+      unit++;
+    }
+    final text = size < 10 && unit > 0
+        ? size.toStringAsFixed(1)
+        : size.toStringAsFixed(0);
+    return '$text ${units[unit]}';
+  }
+
+  Widget _buildUploadItem(BuildContext context, UploadProgress upload) {
+    final color = switch (upload.status) {
+      UploadProgressStatus.running => m.Colors.blue,
+      UploadProgressStatus.success => m.Colors.green,
+      UploadProgressStatus.failed => m.Colors.red,
+      _ => m.Colors.grey.shade400,
+    };
+    final statusText = switch (upload.status) {
+      UploadProgressStatus.running => '上传中',
+      UploadProgressStatus.success => '已完成',
+      UploadProgressStatus.failed => '失败',
+      _ => '未知',
+    };
+    final title = upload.message?.trim().isNotEmpty == true
+        ? upload.message!.trim()
+        : '传输文件';
+    final percent = upload.total > 0
+        ? (upload.sent / upload.total * 100).clamp(0, 100)
+        : 0.0;
+    final detail = upload.total > 0
+        ? '${percent.toStringAsFixed(0)}% · ${_formatBytes(upload.sent)}/${_formatBytes(upload.total)}'
+        : _formatBytes(upload.sent);
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: 8.r),
+      decoration: BoxDecoration(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: Colors.transparent),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 16,
+            height: 16,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: Colors.transparent,
+              border: Border.all(color: color, width: 1.5),
+            ),
+            child: Icon(Icons.cloud_upload, size: 10, color: color),
+          ),
+          SizedBox(width: 8.w),
+          Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: TextStyle(
+                  fontSize: 12.sp,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              Text(
+                '$statusText · $detail',
+                style: TextStyle(
+                  fontSize: 10.sp,
+                  color: color,
+                ),
+              ),
+            ],
+          ),
+          if (upload.status == UploadProgressStatus.running) ...[
+            SizedBox(width: 8.w),
+            const SizedBox(
+              width: 10,
+              height: 10,
+              child: m.CircularProgressIndicator(strokeWidth: 2),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final controller = Get.find<BatchesController>();
@@ -290,15 +382,17 @@ class _HorizontalTaskProgressBar extends StatelessWidget {
             child: Obx(() {
               final run = controller.selectedRun;
               final results = run?.taskResults ?? const <TaskRunResult>[];
+              final upload = controller.uploadProgress.value;
+              final hasUpload = upload != null;
 
-              if (tasks.isEmpty) {
+              if (tasks.isEmpty && !hasUpload) {
                 return const Center(child: Text('暂无任务'));
               }
 
               return ListView.separated(
                 scrollDirection: Axis.horizontal,
                 padding: EdgeInsets.symmetric(vertical: 12.h),
-                itemCount: tasks.length,
+                itemCount: tasks.length + (hasUpload ? 1 : 0),
                 separatorBuilder: (context, index) {
                   return Container(
                     width: 24.w,
@@ -310,12 +404,16 @@ class _HorizontalTaskProgressBar extends StatelessWidget {
                   );
                 },
                 itemBuilder: (context, index) {
-                  final task = tasks[index];
+                  if (hasUpload && index == 0) {
+                    return _buildUploadItem(context, upload!);
+                  }
+                  final taskIndex = hasUpload ? index - 1 : index;
+                  final task = tasks[taskIndex];
                   final result = results.firstWhereOrNull(
                     (r) => r.taskId == task.id,
                   );
                   final isSelected =
-                      controller.selectedTaskIndex.value == index;
+                      controller.selectedTaskIndex.value == taskIndex;
 
                   // Status Logic
                   final status = result?.status ?? TaskExecStatus.waiting;
@@ -327,7 +425,7 @@ class _HorizontalTaskProgressBar extends StatelessWidget {
                   };
 
                   return GestureDetector(
-                    onTap: () => controller.userSelectTask(index),
+                    onTap: () => controller.userSelectTask(taskIndex),
                     child: Container(
                       padding: EdgeInsets.symmetric(horizontal: 8.r),
                       decoration: BoxDecoration(
@@ -355,7 +453,7 @@ class _HorizontalTaskProgressBar extends StatelessWidget {
                             ),
                             child: isSelected
                                 ? Text(
-                                    '${index + 1}',
+                                    '${taskIndex + 1}',
                                     style: TextStyle(
                                       fontSize: 9.sp,
                                       color: Colors.white,
@@ -363,7 +461,7 @@ class _HorizontalTaskProgressBar extends StatelessWidget {
                                     ),
                                   )
                                 : Text(
-                                    '${index + 1}',
+                                    '${taskIndex + 1}',
                                     style: TextStyle(
                                       fontSize: 9.sp,
                                       color: color,
@@ -383,14 +481,24 @@ class _HorizontalTaskProgressBar extends StatelessWidget {
                                   fontWeight: FontWeight.w500,
                                 ),
                               ),
-                              if (result?.exitCode != null)
-                                Text(
-                                  'Exit: ${result!.exitCode}',
-                                  style: TextStyle(
-                                    fontSize: 10.sp,
-                                    color: color,
-                                  ),
-                                ),
+                          if (run == null)
+                            Text(
+                              '未执行',
+                              style: TextStyle(
+                                fontSize: 10.sp,
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.mutedForeground,
+                              ),
+                            )
+                          else if (result?.exitCode != null)
+                            Text(
+                              'Exit: ${result!.exitCode}',
+                              style: TextStyle(
+                                fontSize: 10.sp,
+                                color: color,
+                              ),
+                            ),
                             ],
                           ),
                           if (status == TaskExecStatus.running) ...[

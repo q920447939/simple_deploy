@@ -43,6 +43,8 @@ class ProjectPaths {
 
   File taskLogFile(String runId, int taskIndex) =>
       AtomicFile.childFile(runLogsFor(runId), 'task_$taskIndex.log');
+  File runUploadProgressFile(String runId) =>
+      AtomicFile.childFile(runLogsFor(runId), 'upload_progress.json');
 
   File batchLockFile(String batchId) =>
       AtomicFile.childFile(locksDir, 'batch_$batchId.lock');

@@ -216,7 +216,11 @@ class SshConnection {
     return session.exitCode ?? -1;
   }
 
-  Future<void> uploadFile(File local, String remotePath) async {
+  Future<void> uploadFile(
+    File local,
+    String remotePath, {
+    void Function(int sent, int total)? onProgress,
+  }) async {
     final sftp = _sftp;
     if (sftp == null) {
       throw StateError('SFTP not initialized.');
@@ -229,7 +233,15 @@ class SshConnection {
           SftpFileOpenMode.truncate,
     );
     try {
-      final stream = local.openRead().map((chunk) => Uint8List.fromList(chunk));
+      final total = await local.length();
+      var sent = 0;
+      onProgress?.call(0, total);
+      final stream = local.openRead().map((chunk) {
+        final data = Uint8List.fromList(chunk);
+        sent += data.length;
+        onProgress?.call(sent, total);
+        return data;
+      });
       await remote.write(stream).done;
     } finally {
       await remote.close();
