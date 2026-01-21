@@ -1,0 +1,11 @@
+{
+  "file_inputs": {},
+  "vars": {
+    "f58aef22-0c9c-46bb-86b7-8cf3ff71dcb9": {
+      "project_dir": "/mnt/newdisk/work_space/musk/firework_back/firework_admin_back",
+      "artifact_glob": "target/*.jar",
+      "output_path": "/tmp/simple_deploy_artifacts/app.jar",
+      "maven_cmd": "mvn"
+    }
+  }
+}

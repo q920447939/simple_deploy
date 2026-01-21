@@ -1,49 +1,130 @@
 [
   {
-    "id": "b5a081f3-d004-4ada-9b6c-ac5b0b1cd2bb",
-    "name": "firework本地打包",
-    "description": "",
+    "id": "f1f1c8b9-4d29-4136-b025-004bf3670f6f",
+    "name": "Maven 打包（跳过测试）",
+    "description": "mvn package -DskipTests，并复制产物到指定路径",
     "type": "local_script",
     "playbook_id": null,
     "script": {
       "shell": "bash",
-      "content": "cd /mnt/newdisk/work_space/musk/firework_back/firework_admin_back\nmvn package"
+      "content": "set -euo pipefail\nPROJECT_DIR=\"${SD_project_dir:-/path/to/project}\"\nARTIFACT_GLOB=\"${SD_artifact_glob:-target/*.jar}\"\nOUTPUT_PATH=\"${SD_output_path:-/tmp/simple_deploy_artifacts/app.jar}\"\nMAVEN_CMD=\"${SD_maven_cmd:-mvn}\"\ncd \"$PROJECT_DIR\"\n$MAVEN_CMD -DskipTests package\nmkdir -p \"$(dirname \"$OUTPUT_PATH\")\"\nartifact=$(ls -1 $ARTIFACT_GLOB 2>/dev/null | head -n 1 || true)\nif [ -z \"$artifact\" ]; then\n  echo \"artifact not found: $ARTIFACT_GLOB\" >&2\n  exit 2\nfi\ncp \"$artifact\" \"$OUTPUT_PATH\"\necho \"artifact copied to $OUTPUT_PATH\"\n"
     },
     "file_slots": [],
-    "variables": [],
+    "variables": [
+      {
+        "name": "project_dir",
+        "description": "项目根目录",
+        "default": "/path/to/project",
+        "required": true
+      },
+      {
+        "name": "artifact_glob",
+        "description": "产物匹配（相对 project_dir）",
+        "default": "target/*.jar",
+        "required": true
+      },
+      {
+        "name": "output_path",
+        "description": "产物复制路径（绝对路径）",
+        "default": "/tmp/simple_deploy_artifacts/app.jar",
+        "required": true
+      },
+      {
+        "name": "maven_cmd",
+        "description": "mvn 命令",
+        "default": "mvn",
+        "required": false
+      }
+    ],
     "outputs": [
       {
-        "name": "firework",
-        "path": "/mnt/newdisk/work_space/musk/firework_back/firework_admin_back/target/firework-admin-back-0.1.0.jar"
+        "name": "artifact",
+        "path": "/tmp/simple_deploy_artifacts/app.jar"
       }
     ]
   },
   {
-    "id": "b1149564-b358-486f-b8e5-4f97df8e8133",
-    "name": "复制和重命名",
-    "description": "",
+    "id": "1afa62bf-13ad-4f2c-aafa-5cf2ffb4273a",
+    "name": "上传文件到目录（保持原名）",
+    "description": "将文件传输到指定目录，目录不存在自动创建",
     "type": "ansible_playbook",
-    "playbook_id": "f263cef5-0813-4852-ba69-85802dd9be85",
+    "playbook_id": "3df51c2d-842a-48f5-bcc1-56557c88902a",
     "script": null,
     "file_slots": [
       {
-        "name": "firework_jar",
+        "name": "file",
         "required": true,
         "multiple": false
       }
     ],
-    "variables": [],
+    "variables": [
+      {
+        "name": "remote_dest_dir",
+        "description": "目标目录",
+        "default": "/opt/app",
+        "required": true
+      },
+      {
+        "name": "file_mode",
+        "description": "文件权限",
+        "default": "0644",
+        "required": false
+      },
+      {
+        "name": "python",
+        "description": "远程 python 路径",
+        "default": "/usr/bin/python3",
+        "required": false
+      }
+    ],
     "outputs": []
   },
   {
-    "id": "34b369c6-0e9b-44fa-93ea-57ae4523a68d",
-    "name": "启动firework",
-    "description": "",
+    "id": "395f9a24-b9ef-468e-a2b3-ab40a1a28a3e",
+    "name": "Kill 端口后启动 Java",
+    "description": "按端口强制 kill 后启动 Java 程序",
     "type": "ansible_playbook",
-    "playbook_id": "fd56896c-6db2-4b57-a788-c57eccc6937a",
+    "playbook_id": "fb49b707-6274-4fac-8abb-373323cd7df2",
     "script": null,
     "file_slots": [],
-    "variables": [],
+    "variables": [
+      {
+        "name": "port",
+        "description": "端口号",
+        "default": "8080",
+        "required": true
+      },
+      {
+        "name": "java_cmd",
+        "description": "Java 启动命令",
+        "default": "java -jar /opt/app/app.jar",
+        "required": true
+      },
+      {
+        "name": "work_dir",
+        "description": "工作目录",
+        "default": "/opt/app",
+        "required": true
+      },
+      {
+        "name": "log_path",
+        "description": "日志路径",
+        "default": "/opt/app/app.log",
+        "required": false
+      },
+      {
+        "name": "signal",
+        "description": "信号（默认 9）",
+        "default": "9",
+        "required": false
+      },
+      {
+        "name": "python",
+        "description": "远程 python 路径",
+        "default": "/usr/bin/python3",
+        "required": false
+      }
+    ],
     "outputs": []
   }
 ]

@@ -1,0 +1,27 @@
+- name: Upload and extract package
+  hosts: all
+  gather_facts: false
+  become: yes
+  vars:
+    remote_dest_dir: "/opt/app"
+    archive_keep: "false"
+    ansible_python_interpreter: "{{ python | default('/usr/bin/python3') }}"
+
+  tasks:
+    - name: Ensure destination directory exists
+      ansible.builtin.file:
+        path: "{{ remote_dest_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: Upload and extract package
+      ansible.builtin.unarchive:
+        src: "{{ run_dir }}/{{ task_files.package[0] }}"
+        dest: "{{ remote_dest_dir }}"
+        remote_src: false
+
+    - name: Remove uploaded archive
+      ansible.builtin.file:
+        path: "{{ run_dir }}/{{ task_files.package[0] }}"
+        state: absent
+      when: archive_keep | default('false') | lower != 'true'

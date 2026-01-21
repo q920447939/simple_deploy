@@ -52,7 +52,7 @@ class TaskVariable {
 }
 
 class TaskScript {
-  /// Interpreter to run the script (e.g. bash/sh).
+  /// Interpreter to run the script (e.g. bash/bat).
   final String shell;
   final String content;
 

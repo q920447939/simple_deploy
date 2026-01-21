@@ -24,6 +24,21 @@ import '../../widgets/confirm_dialogs.dart';
 import '../../widgets/project_guard.dart';
 import '../../utils/date_time_fmt.dart';
 
+class _BatchTaskEntry {
+  final BatchTaskItem item;
+  final Task task;
+  final int index;
+
+  const _BatchTaskEntry({
+    required this.item,
+    required this.task,
+    required this.index,
+  });
+
+  String get displayName =>
+      item.name.trim().isEmpty ? task.name : item.name.trim();
+}
+
 class BatchesPage extends StatelessWidget {
   const BatchesPage({super.key});
 
@@ -237,10 +252,15 @@ class _BatchDetail extends StatelessWidget {
     final managed = servers
         .where((s) => batch.managedServerIds.contains(s.id))
         .toList();
-    final tasks = batch.taskOrder
-        .map((id) => controller.taskById(id))
-        .whereType<Task>()
-        .toList();
+    final taskById = {for (final t in controller.tasks) t.id: t};
+    final entries = <_BatchTaskEntry>[];
+    var index = 0;
+    for (final item in batch.orderedTaskItems()) {
+      final task = taskById[item.taskId];
+      if (task == null) continue;
+      entries.add(_BatchTaskEntry(item: item, task: task, index: index));
+      index++;
+    }
 
     return Row(
       children: [
@@ -250,14 +270,14 @@ class _BatchDetail extends StatelessWidget {
             batch: batch,
             control: control,
             managed: managed,
-            tasks: tasks,
+            entries: entries,
           ),
         ),
         const VerticalDivider(width: 1),
         Expanded(
           child: Column(
             children: [
-              _HorizontalTaskProgressBar(tasks: tasks),
+              _HorizontalTaskProgressBar(entries: entries),
               Expanded(child: _BatchLogArea(batch: batch)),
             ],
           ),
@@ -268,9 +288,9 @@ class _BatchDetail extends StatelessWidget {
 }
 
 class _HorizontalTaskProgressBar extends StatelessWidget {
-  final List<Task> tasks;
+  final List<_BatchTaskEntry> entries;
 
-  const _HorizontalTaskProgressBar({required this.tasks});
+  const _HorizontalTaskProgressBar({required this.entries});
 
   bool _recapFailedForTask(Run? run, int taskIndex) {
     final summary = run?.ansibleSummary;
@@ -391,14 +411,14 @@ class _HorizontalTaskProgressBar extends StatelessWidget {
               final upload = controller.uploadProgress.value;
               final hasUpload = upload != null;
 
-              if (tasks.isEmpty && !hasUpload) {
+              if (entries.isEmpty && !hasUpload) {
                 return const Center(child: Text('暂无任务'));
               }
 
               return ListView.separated(
                 scrollDirection: Axis.horizontal,
                 padding: EdgeInsets.symmetric(vertical: 12.h),
-                itemCount: tasks.length + (hasUpload ? 1 : 0),
+                itemCount: entries.length + (hasUpload ? 1 : 0),
                 separatorBuilder: (context, index) {
                   return Container(
                     width: 24.w,
@@ -414,10 +434,13 @@ class _HorizontalTaskProgressBar extends StatelessWidget {
                     return _buildUploadItem(context, upload);
                   }
                   final taskIndex = hasUpload ? index - 1 : index;
-                  final task = tasks[taskIndex];
-                  final result = results.firstWhereOrNull(
-                    (r) => r.taskId == task.id,
-                  );
+                  if (taskIndex < 0 || taskIndex >= entries.length) {
+                    return const SizedBox.shrink();
+                  }
+                  final entry = entries[taskIndex];
+                  final result = taskIndex < results.length
+                      ? results[taskIndex]
+                      : null;
                   final isSelected =
                       controller.selectedTaskIndex.value == taskIndex;
 
@@ -484,7 +507,7 @@ class _HorizontalTaskProgressBar extends StatelessWidget {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                task.name,
+                                entry.displayName,
                                 style: TextStyle(
                                   fontSize: 12.sp,
                                   fontWeight: FontWeight.w500,
@@ -538,13 +561,13 @@ class _BatchSidebar extends StatefulWidget {
   final Batch batch;
   final Server? control;
   final List<Server> managed;
-  final List<Task> tasks;
+  final List<_BatchTaskEntry> entries;
 
   const _BatchSidebar({
     required this.batch,
     required this.control,
     required this.managed,
-    required this.tasks,
+    required this.entries,
   });
 
   @override
@@ -581,7 +604,7 @@ class _BatchSidebarState extends State<_BatchSidebar> {
     Future<void> onExecute() async {
       final inputs = await showDialog<RunInputs>(
         context: context,
-        builder: (context) => _BatchInputsDialog(tasks: widget.tasks),
+        builder: (context) => _BatchInputsDialog(entries: widget.entries),
       );
       if (inputs == null) return;
       try {
@@ -827,7 +850,7 @@ class _BatchSidebarState extends State<_BatchSidebar> {
                   batch: widget.batch,
                   control: widget.control,
                   managed: widget.managed,
-                  tasks: widget.tasks,
+                  entries: widget.entries,
                 )
               : _RunHistoryView(controller: controller),
         ),
@@ -952,17 +975,41 @@ class _TaskProgressView extends StatelessWidget {
   final Batch batch;
   final Server? control;
   final List<Server> managed;
-  final List<Task> tasks;
+  final List<_BatchTaskEntry> entries;
 
   const _TaskProgressView({
     required this.batch,
     required this.control,
     required this.managed,
-    required this.tasks,
+    required this.entries,
   });
+
+  String _formatFileInputs(BatchTaskInputs inputs) {
+    if (inputs.fileInputs.isEmpty) return '文件：未设置';
+    final parts = <String>[];
+    for (final e in inputs.fileInputs.entries) {
+      parts.add('${e.key}(${e.value.length})');
+      if (parts.length >= 3) break;
+    }
+    return '文件：${parts.join(', ')}';
+  }
+
+  String _formatVars(BatchTaskInputs inputs) {
+    if (inputs.vars.isEmpty) return '变量：未设置';
+    final parts = <String>[];
+    for (final e in inputs.vars.entries) {
+      if (e.value.trim().isEmpty) continue;
+      parts.add('${e.key}=${e.value}');
+      if (parts.length >= 3) break;
+    }
+    if (parts.isEmpty) return '变量：未设置';
+    return '变量：${parts.join(', ')}';
+  }
 
   @override
   Widget build(BuildContext context) {
+    final controller = Get.find<BatchesController>();
+    final paused = batch.status == BatchStatus.paused;
     return Padding(
       padding: EdgeInsets.all(12.r),
       child: Column(
@@ -980,8 +1027,70 @@ class _TaskProgressView extends StatelessWidget {
           ),
           _InfoItem(
             label: 'Task 数',
-            value: '${tasks.length} 个',
+            value: '${entries.length} 个',
             icon: Icons.task,
+          ),
+          SizedBox(height: 12.h),
+          Row(
+            children: [
+              const Expanded(child: Text('任务参数')),
+              if (paused) Text('可编辑').muted(),
+            ],
+          ),
+          SizedBox(height: 8.h),
+          Expanded(
+            child: entries.isEmpty
+                ? const Center(child: Text('暂无任务'))
+                : ListView.separated(
+                    itemCount: entries.length,
+                    separatorBuilder: (context, index) =>
+                        const Divider(height: 1),
+                    itemBuilder: (context, i) {
+                      final entry = entries[i];
+                      final inputs = entry.item.inputs;
+                      return m.ListTile(
+                        title: Text(entry.displayName),
+                        subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'task_id=${entry.task.id.substring(0, 8)}  item_id=${entry.item.id.substring(0, 8)}',
+                            ).muted(),
+                            SizedBox(height: 2.h),
+                            Text(_formatFileInputs(inputs)).muted(),
+                            Text(_formatVars(inputs)).muted(),
+                          ],
+                        ),
+                        trailing: paused
+                            ? GhostButton(
+                                density: ButtonDensity.icon,
+                                onPressed: () async {
+                                  final inputs = await showDialog<RunInputs>(
+                                    context: context,
+                                    builder: (context) => _BatchInputsDialog(
+                                      entries: [entry],
+                                      actionLabel: '保存参数',
+                                      enforceRequired: false,
+                                    ),
+                                  );
+                                  if (inputs == null) return;
+                                  try {
+                                    await controller.updateBatchTaskInputs(
+                                      batch,
+                                      inputs,
+                                    );
+                                  } on AppException catch (e) {
+                                    if (context.mounted) {
+                                      await showAppErrorDialog(context, e);
+                                    }
+                                  }
+                                },
+                                child: const Icon(Icons.edit, size: 16),
+                              )
+                            : null,
+                      );
+                    },
+                  ),
           ),
         ],
       ),
@@ -1597,7 +1706,7 @@ class _BatchEditDialogState extends State<_BatchEditDialog> {
 
   String? _controlId;
   final Set<String> _managed = <String>{};
-  final List<String> _order = <String>[];
+  final List<BatchTaskItem> _items = <BatchTaskItem>[];
 
   @override
   void initState() {
@@ -1608,7 +1717,7 @@ class _BatchEditDialogState extends State<_BatchEditDialog> {
       _desc.text = i.description;
       _controlId = i.controlServerId;
       _managed.addAll(i.managedServerIds);
-      _order.addAll(i.taskOrder);
+      _items.addAll(i.orderedTaskItems());
     } else {
       final firstControl = widget.servers
           .where((s) => s.type == ServerType.control && s.enabled)
@@ -1635,7 +1744,7 @@ class _BatchEditDialogState extends State<_BatchEditDialog> {
         .toList();
 
     final canSave =
-        _controlId != null && _managed.isNotEmpty && _order.isNotEmpty;
+        _controlId != null && _managed.isNotEmpty && _items.isNotEmpty;
 
     return AlertDialog(
       title: Text(initial == null ? '新增批次' : '编辑批次'),
@@ -1706,8 +1815,9 @@ class _BatchEditDialogState extends State<_BatchEditDialog> {
                 const Expanded(child: Text('任务顺序（至少 1 个）')),
                 OutlineButton(
                   onPressed: () async {
+                    final existing = _items.map((i) => i.taskId).toSet();
                     final remaining = widget.tasks
-                        .where((t) => !_order.contains(t.id))
+                        .where((t) => !existing.contains(t.id))
                         .toList();
                     if (remaining.isEmpty) return;
                     final picked = await showDialog<List<String>>(
@@ -1715,7 +1825,19 @@ class _BatchEditDialogState extends State<_BatchEditDialog> {
                       builder: (context) => _PickTaskDialog(tasks: remaining),
                     );
                     if (picked == null || picked.isEmpty) return;
-                    setState(() => _order.addAll(picked));
+                    setState(() {
+                      for (final id in picked) {
+                        _items.add(
+                          BatchTaskItem(
+                            id: AppServices.I.uuid.v4(),
+                            taskId: id,
+                            name: '',
+                            enabled: true,
+                            inputs: const BatchTaskInputs.empty(),
+                          ),
+                        );
+                      }
+                    });
                   },
                   child: const Text('添加任务'),
                 ),
@@ -1724,18 +1846,22 @@ class _BatchEditDialogState extends State<_BatchEditDialog> {
             SizedBox(height: 8.h),
             SizedBox(
               height: 180.h,
-              child: _order.isEmpty
+              child: _items.isEmpty
                   ? const Center(child: Text('暂无任务'))
                   : m.ListView.builder(
-                      itemCount: _order.length,
+                      itemCount: _items.length,
                       itemBuilder: (context, i) {
-                        final id = _order[i];
+                        final item = _items[i];
                         final t = widget.tasks.firstWhereOrNull(
-                          (x) => x.id == id,
+                          (x) => x.id == item.taskId,
                         );
                         return m.ListTile(
-                          title: Text(t?.name ?? '未知任务'),
-                          subtitle: Text('task_id=$id').muted(),
+                          title: Text(
+                            item.name.isNotEmpty
+                                ? item.name
+                                : (t?.name ?? '未知任务'),
+                          ),
+                          subtitle: Text('task_id=${item.taskId}').muted(),
                           leading: Text('${i + 1}').mono(),
                           trailing: Wrap(
                             spacing: 4.w,
@@ -1745,27 +1871,27 @@ class _BatchEditDialogState extends State<_BatchEditDialog> {
                                 onPressed: i == 0
                                     ? null
                                     : () => setState(() {
-                                        final tmp = _order[i - 1];
-                                        _order[i - 1] = _order[i];
-                                        _order[i] = tmp;
+                                        final tmp = _items[i - 1];
+                                        _items[i - 1] = _items[i];
+                                        _items[i] = tmp;
                                       }),
                                 child: const Icon(Icons.arrow_upward),
                               ),
                               GhostButton(
                                 density: ButtonDensity.icon,
-                                onPressed: i == _order.length - 1
+                                onPressed: i == _items.length - 1
                                     ? null
                                     : () => setState(() {
-                                        final tmp = _order[i + 1];
-                                        _order[i + 1] = _order[i];
-                                        _order[i] = tmp;
+                                        final tmp = _items[i + 1];
+                                        _items[i + 1] = _items[i];
+                                        _items[i] = tmp;
                                       }),
                                 child: const Icon(Icons.arrow_downward),
                               ),
                               GhostButton(
                                 density: ButtonDensity.icon,
                                 onPressed: () =>
-                                    setState(() => _order.removeAt(i)),
+                                    setState(() => _items.removeAt(i)),
                                 child: const Icon(Icons.close),
                               ),
                             ],
@@ -1796,7 +1922,8 @@ class _BatchEditDialogState extends State<_BatchEditDialog> {
                       status: initial?.status ?? BatchStatus.paused,
                       controlServerId: _controlId!,
                       managedServerIds: _managed.toList(),
-                      taskOrder: List<String>.from(_order),
+                      taskOrder: _items.map((i) => i.id).toList(),
+                      taskItems: List<BatchTaskItem>.from(_items),
                       createdAt: initial?.createdAt ?? now,
                       updatedAt: now,
                       lastRunId: initial?.lastRunId,
@@ -1879,9 +2006,15 @@ class _PickTaskDialogState extends State<_PickTaskDialog> {
 }
 
 class _BatchInputsDialog extends StatefulWidget {
-  final List<Task> tasks;
+  final List<_BatchTaskEntry> entries;
+  final String actionLabel;
+  final bool enforceRequired;
 
-  const _BatchInputsDialog({required this.tasks});
+  const _BatchInputsDialog({
+    required this.entries,
+    this.actionLabel = '开始执行',
+    this.enforceRequired = true,
+  });
 
   @override
   State<_BatchInputsDialog> createState() => _BatchInputsDialogState();
@@ -1894,17 +2027,31 @@ class _BatchInputsDialogState extends State<_BatchInputsDialog> {
   @override
   void initState() {
     super.initState();
-    for (final t in widget.tasks) {
-      if (t.variables.isEmpty) continue;
-      final byVar = _varCtrls.putIfAbsent(
-        t.id,
-        () => <String, m.TextEditingController>{},
-      );
-      for (final v in t.variables) {
-        byVar.putIfAbsent(
-          v.name,
-          () => m.TextEditingController(text: v.defaultValue),
+    for (final entry in widget.entries) {
+      final t = entry.task;
+      if (t.variables.isNotEmpty) {
+        final byVar = _varCtrls.putIfAbsent(
+          entry.item.id,
+          () => <String, m.TextEditingController>{},
         );
+        for (final v in t.variables) {
+          final preset = entry.item.inputs.vars[v.name];
+          byVar.putIfAbsent(
+            v.name,
+            () => m.TextEditingController(text: preset ?? v.defaultValue),
+          );
+        }
+      }
+      if (entry.item.inputs.fileInputs.isNotEmpty) {
+        final bySlot = <String, List<FileBinding>>{};
+        for (final e in entry.item.inputs.fileInputs.entries) {
+          bySlot[e.key] = e.value
+              .map((b) => b.copyWith(path: b.path.trim()))
+              .toList();
+        }
+        if (bySlot.isNotEmpty) {
+          _fileInputs[entry.item.id] = bySlot;
+        }
       }
     }
   }
@@ -1919,22 +2066,25 @@ class _BatchInputsDialogState extends State<_BatchInputsDialog> {
     super.dispose();
   }
 
-  List<FileBinding> _ensureList(String taskId, String slotName) {
+  List<FileBinding> _ensureList(String itemId, String slotName) {
     final byTask = _fileInputs.putIfAbsent(
-      taskId,
+      itemId,
       () => <String, List<FileBinding>>{},
     );
     return byTask.putIfAbsent(slotName, () => <FileBinding>[]);
   }
 
   bool get _canStart {
-    for (final t in widget.tasks) {
+    if (!widget.enforceRequired) return true;
+    for (final entry in widget.entries) {
+      final t = entry.task;
       for (final s in t.fileSlots.where((x) => x.required)) {
-        final list = _fileInputs[t.id]?[s.name] ?? const <FileBinding>[];
+        final list =
+            _fileInputs[entry.item.id]?[s.name] ?? const <FileBinding>[];
         if (list.isEmpty) return false;
       }
       for (final v in t.variables.where((x) => x.required)) {
-        final c = _varCtrls[t.id]?[v.name];
+        final c = _varCtrls[entry.item.id]?[v.name];
         final text = c?.text ?? '';
         if (text.trim().isEmpty) return false;
       }
@@ -1944,26 +2094,28 @@ class _BatchInputsDialogState extends State<_BatchInputsDialog> {
 
   RunInputs _normalized() {
     final outFiles = <String, Map<String, List<FileBinding>>>{};
-    for (final entry in _fileInputs.entries) {
+    for (final entry in widget.entries) {
+      final slotInputs = _fileInputs[entry.item.id] ?? const {};
       final slots = <String, List<FileBinding>>{};
-      for (final s in entry.value.entries) {
+      for (final s in slotInputs.entries) {
         final list = s.value
             .where((x) => x.path.trim().isNotEmpty)
             .map((x) => x.copyWith(path: x.path.trim()))
             .toList();
-        if (list.isEmpty) continue;
         slots[s.key] = list;
       }
-      if (slots.isEmpty) continue;
-      outFiles[entry.key] = slots;
+      if (slots.isNotEmpty || entry.task.fileSlots.isNotEmpty) {
+        outFiles[entry.item.id] = slots;
+      }
     }
 
     final outVars = <String, Map<String, String>>{};
-    for (final t in widget.tasks) {
+    for (final entry in widget.entries) {
+      final t = entry.task;
       if (t.variables.isEmpty) continue;
-      final byVar = _varCtrls[t.id];
+      final byVar = _varCtrls[entry.item.id];
       if (byVar == null) continue;
-      outVars[t.id] = <String, String>{
+      outVars[entry.item.id] = <String, String>{
         for (final v in t.variables) v.name: (byVar[v.name]?.text ?? ''),
       };
     }
@@ -1971,16 +2123,16 @@ class _BatchInputsDialogState extends State<_BatchInputsDialog> {
     return RunInputs(fileInputs: outFiles, vars: outVars);
   }
 
-  Future<void> _pickFiles(Task task, FileSlot slot) async {
+  Future<void> _pickFiles(_BatchTaskEntry entry, FileSlot slot) async {
     final result = await FilePicker.platform.pickFiles(
       allowMultiple: slot.multiple,
-      dialogTitle: '选择文件：${task.name} / ${slot.name}',
+      dialogTitle: '选择文件：${entry.displayName} / ${slot.name}',
     );
     if (result == null) return;
     final picked = result.paths.whereType<String>().toList();
     if (picked.isEmpty) return;
     setState(() {
-      final list = _ensureList(task.id, slot.name);
+      final list = _ensureList(entry.item.id, slot.name);
       if (slot.multiple) {
         for (final x in picked) {
           if (list.every((b) => b.path != x)) {
@@ -1997,14 +2149,14 @@ class _BatchInputsDialogState extends State<_BatchInputsDialog> {
     });
   }
 
-  Future<void> _addLocalPath(Task task, FileSlot slot) async {
+  Future<void> _addLocalPath(_BatchTaskEntry entry, FileSlot slot) async {
     final path = await _promptPath(
-      title: '输入本地路径：${task.name} / ${slot.name}',
+      title: '输入本地路径：${entry.displayName} / ${slot.name}',
       hintText: '例如：/home/user/package.tar.gz 或 C:\\path\\file.zip',
     );
     if (path == null || path.trim().isEmpty) return;
     setState(() {
-      final list = _ensureList(task.id, slot.name);
+      final list = _ensureList(entry.item.id, slot.name);
       if (slot.multiple) {
         if (list.every((b) => b.path != path.trim())) {
           list.add(
@@ -2021,14 +2173,14 @@ class _BatchInputsDialogState extends State<_BatchInputsDialog> {
     });
   }
 
-  Future<void> _addControlPath(Task task, FileSlot slot) async {
+  Future<void> _addControlPath(_BatchTaskEntry entry, FileSlot slot) async {
     final path = await _promptPath(
-      title: '输入控制端路径：${task.name} / ${slot.name}',
+      title: '输入控制端路径：${entry.displayName} / ${slot.name}',
       hintText: '例如：/opt/packages/app.tar.gz',
     );
     if (path == null || path.trim().isEmpty) return;
     setState(() {
-      final list = _ensureList(task.id, slot.name);
+      final list = _ensureList(entry.item.id, slot.name);
       if (slot.multiple) {
         if (list.every((b) => b.path != path.trim())) {
           list.add(
@@ -2045,11 +2197,15 @@ class _BatchInputsDialogState extends State<_BatchInputsDialog> {
     });
   }
 
-  Future<void> _addScriptOutput(Task task, FileSlot slot, int taskIndex) async {
+  Future<void> _addScriptOutput(
+    _BatchTaskEntry entry,
+    FileSlot slot,
+    int taskIndex,
+  ) async {
     final binding = await _pickScriptOutput(taskIndex);
     if (binding == null) return;
     setState(() {
-      final list = _ensureList(task.id, slot.name);
+      final list = _ensureList(entry.item.id, slot.name);
       if (slot.multiple) {
         if (list.every((b) => b.path != binding.path)) {
           list.add(binding);
@@ -2064,12 +2220,13 @@ class _BatchInputsDialogState extends State<_BatchInputsDialog> {
 
   Future<FileBinding?> _pickScriptOutput(int taskIndex) async {
     final options = <_ScriptOutputChoice>[];
-    for (var i = 0; i < widget.tasks.length; i++) {
+    for (var i = 0; i < widget.entries.length; i++) {
       if (i >= taskIndex) break;
-      final t = widget.tasks[i];
+      final entry = widget.entries[i];
+      final t = entry.task;
       if (!t.isLocalScript || t.outputs.isEmpty) continue;
       for (final o in t.outputs) {
-        options.add(_ScriptOutputChoice(task: t, output: o, index: i));
+        options.add(_ScriptOutputChoice(entry: entry, output: o, index: i));
       }
     }
 
@@ -2099,13 +2256,13 @@ class _BatchInputsDialogState extends State<_BatchInputsDialog> {
               itemBuilder: (context, i) {
                 final o = options[i];
                 return m.ListTile(
-                  title: Text('${o.task.name} / ${o.output.name}'),
+                  title: Text('${o.entry.displayName} / ${o.output.name}'),
                   subtitle: Text(o.output.path).muted(),
                   onTap: () => Navigator.of(context).pop(
                     FileBinding(
                       type: FileBindingType.localOutput,
                       path: o.output.path,
-                      sourceTaskId: o.task.id,
+                      sourceTaskId: o.entry.item.id,
                       sourceOutput: o.output.name,
                     ),
                   ),
@@ -2154,24 +2311,24 @@ class _BatchInputsDialogState extends State<_BatchInputsDialog> {
     return result;
   }
 
-  void _remove(Task task, FileSlot slot, FileBinding binding) {
+  void _remove(_BatchTaskEntry entry, FileSlot slot, FileBinding binding) {
     setState(() {
-      final list = _ensureList(task.id, slot.name);
+      final list = _ensureList(entry.item.id, slot.name);
       list.removeWhere((b) => b.type == binding.type && b.path == binding.path);
       if (list.isEmpty) {
-        _fileInputs[task.id]?.remove(slot.name);
-        if ((_fileInputs[task.id]?.isEmpty ?? false)) {
-          _fileInputs.remove(task.id);
+        _fileInputs[entry.item.id]?.remove(slot.name);
+        if ((_fileInputs[entry.item.id]?.isEmpty ?? false)) {
+          _fileInputs.remove(entry.item.id);
         }
       }
     });
   }
 
-  void _clear(Task task, FileSlot slot) {
+  void _clear(_BatchTaskEntry entry, FileSlot slot) {
     setState(() {
-      _fileInputs[task.id]?.remove(slot.name);
-      if ((_fileInputs[task.id]?.isEmpty ?? false)) {
-        _fileInputs.remove(task.id);
+      _fileInputs[entry.item.id]?.remove(slot.name);
+      if ((_fileInputs[entry.item.id]?.isEmpty ?? false)) {
+        _fileInputs.remove(entry.item.id);
       }
     });
   }
@@ -2187,14 +2344,14 @@ class _BatchInputsDialogState extends State<_BatchInputsDialog> {
           children: [
             const Text('说明：必选变量/必选槽位未填写/未选择文件将无法开始执行。').muted(),
             SizedBox(height: 12.h),
-            for (var ti = 0; ti < widget.tasks.length; ti++) ...[
+            for (var ti = 0; ti < widget.entries.length; ti++) ...[
               if (ti > 0) const Divider(),
-              Text(widget.tasks[ti].name).p(),
+              Text(widget.entries[ti].displayName).p(),
               SizedBox(height: 6.h),
-              if (widget.tasks[ti].variables.isNotEmpty) ...[
-                for (final v in widget.tasks[ti].variables) ...[
+              if (widget.entries[ti].task.variables.isNotEmpty) ...[
+                for (final v in widget.entries[ti].task.variables) ...[
                   m.TextField(
-                    controller: _varCtrls[widget.tasks[ti].id]?[v.name],
+                    controller: _varCtrls[widget.entries[ti].item.id]?[v.name],
                     decoration: m.InputDecoration(
                       labelText: v.required ? '${v.name}（必填）' : v.name,
                       helperText: v.description.trim().isEmpty
@@ -2206,24 +2363,25 @@ class _BatchInputsDialogState extends State<_BatchInputsDialog> {
                 ],
                 SizedBox(height: 6.h),
               ],
-              if (widget.tasks[ti].fileSlots.isEmpty)
+              if (widget.entries[ti].task.fileSlots.isEmpty)
                 Padding(
                   padding: EdgeInsets.only(bottom: 8.h),
                   child: Text('该任务没有文件槽位。').muted(),
                 ),
-              for (final slot in widget.tasks[ti].fileSlots) ...[
+              for (final slot in widget.entries[ti].task.fileSlots) ...[
                 _SlotRow(
                   slot: slot,
                   selectedBindings:
-                      _fileInputs[widget.tasks[ti].id]?[slot.name] ?? const [],
-                  onPick: () => _pickFiles(widget.tasks[ti], slot),
-                  onAddLocal: () => _addLocalPath(widget.tasks[ti], slot),
-                  onAddControl: () => _addControlPath(widget.tasks[ti], slot),
+                      _fileInputs[widget.entries[ti].item.id]?[slot.name] ??
+                      const [],
+                  onPick: () => _pickFiles(widget.entries[ti], slot),
+                  onAddLocal: () => _addLocalPath(widget.entries[ti], slot),
+                  onAddControl: () => _addControlPath(widget.entries[ti], slot),
                   onAddOutput: () =>
-                      _addScriptOutput(widget.tasks[ti], slot, ti),
-                  onClear: () => _clear(widget.tasks[ti], slot),
+                      _addScriptOutput(widget.entries[ti], slot, ti),
+                  onClear: () => _clear(widget.entries[ti], slot),
                   onRemove: (binding) =>
-                      _remove(widget.tasks[ti], slot, binding),
+                      _remove(widget.entries[ti], slot, binding),
                 ),
                 SizedBox(height: 10.h),
               ],
@@ -2240,7 +2398,7 @@ class _BatchInputsDialogState extends State<_BatchInputsDialog> {
           onPressed: _canStart
               ? () => Navigator.of(context).pop(_normalized())
               : null,
-          child: const Text('开始执行'),
+          child: Text(widget.actionLabel),
         ),
       ],
     );
@@ -2248,12 +2406,12 @@ class _BatchInputsDialogState extends State<_BatchInputsDialog> {
 }
 
 class _ScriptOutputChoice {
-  final Task task;
+  final _BatchTaskEntry entry;
   final TaskOutput output;
   final int index;
 
   const _ScriptOutputChoice({
-    required this.task,
+    required this.entry,
     required this.output,
     required this.index,
   });

@@ -5,18 +5,20 @@
   vars:
     app_jar_path: /home/firework/firework_admin_back/firework-admin-back-0.1.0.jar
     app_log_redirect: /dev/null
-    port: 18080
-
+    app_port: 18080
+    ansible_python_interpreter: /usr/local/bin/python3.12
+    
   tasks:
-    - name: Kill process using port {{ port }}
+    - name: Kill process using port {{ app_port }}
       shell: |
-        set -euo pipefail
-        pid=$(lsof -ti :{{ port }})
+        pid=$(lsof -ti :{{ app_port }} || true)
         if [ -n "$pid" ]; then
           kill -9 $pid
           echo "Killed PID(s): $pid"
+          exit 0
         else
-          echo "No process found on port {{ port }}"
+          echo "No process found on port {{ app_port }}"
+          exit 0
         fi
       register: kill_result
       changed_when: "'Killed PID' in kill_result.stdout"

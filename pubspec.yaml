@@ -34,3 +34,5 @@ flutter:
     - assets/offline/python/
     - assets/offline/ansible/
     - assets/offline/os_pkgs/ubuntu/
+    - assets/templates/
+    - assets/templates/playbooks/

@@ -561,6 +561,13 @@ class BatchesController extends GetxController {
     }
 
     await _writeLastInputs(batch.id, inputs);
+    await _applyInputsToBatch(batch, inputs);
+
+    // Starting a new run should follow the latest run/logs by default.
+    userPinnedRun.value = false;
+    userPinnedTask.value = false;
+    selectedRunId.value = null;
+    selectedTaskIndex.value = 0;
 
     // Fire-and-forget: 让 UI 可以立即轮询展示进度/日志。
     // 错误会落盘到 runs/<run_id>.json，并写入 app_logs。
@@ -613,6 +620,47 @@ class BatchesController extends GetxController {
       pp.batchLastInputsFile(batchId),
       inputs.toJson(),
     );
+  }
+
+  Future<void> updateBatchTaskInputs(Batch batch, RunInputs inputs) async {
+    final pid = projectId;
+    if (pid == null) return;
+    if (batch.status != BatchStatus.paused) {
+      throw const AppException(
+        code: AppErrorCode.validation,
+        title: '批次不可编辑',
+        message: '仅 paused 状态允许更新任务参数。',
+        suggestion: '请先将批次重置为 paused。',
+      );
+    }
+    await _applyInputsToBatch(batch, inputs);
+    await loadAll();
+  }
+
+  Future<void> _applyInputsToBatch(Batch batch, RunInputs inputs) async {
+    final pid = projectId;
+    if (pid == null) return;
+    if (batch.taskItems.isEmpty) return;
+    final updatedItems = <BatchTaskItem>[];
+    for (final item in batch.taskItems) {
+      final fileInputs =
+          inputs.fileInputs[item.id] ?? inputs.fileInputs[item.taskId];
+      final vars = inputs.vars[item.id] ?? inputs.vars[item.taskId];
+      if (fileInputs == null && vars == null) {
+        updatedItems.add(item);
+        continue;
+      }
+      final nextInputs = item.inputs.copyWith(
+        fileInputs: fileInputs ?? item.inputs.fileInputs,
+        vars: vars ?? item.inputs.vars,
+      );
+      updatedItems.add(item.copyWith(inputs: nextInputs));
+    }
+    final updated = batch.copyWith(
+      taskItems: updatedItems,
+      updatedAt: DateTime.now(),
+    );
+    await AppServices.I.batchesStore(pid).upsert(updated);
   }
 
   Future<void> _loadLastRuns(String projectId, List<Batch> list) async {

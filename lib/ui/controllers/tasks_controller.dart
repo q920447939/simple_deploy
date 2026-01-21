@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:get/get.dart';
 import 'package:path/path.dart' as p;
 
@@ -25,7 +27,9 @@ class TasksController extends GetxController {
     'run_id',
     'run_dir',
     'files',
+    'files_by_item',
     'task',
+    'task_item',
     'task_files',
   };
 
@@ -218,7 +222,7 @@ class TasksController extends GetxController {
           code: AppErrorCode.validation,
           title: '脚本不能为空',
           message: '脚本任务必须填写脚本内容。',
-          suggestion: '填写 bash/sh 脚本后重试。',
+          suggestion: '填写 bash/bat 脚本后重试。',
         );
       }
       if (script.content.trim().isEmpty) {
@@ -226,10 +230,30 @@ class TasksController extends GetxController {
           code: AppErrorCode.validation,
           title: '脚本不能为空',
           message: '脚本任务必须填写脚本内容。',
-          suggestion: '填写 bash/sh 脚本后重试。',
+          suggestion: '填写 bash/bat 脚本后重试。',
         );
       }
-      final shell = script.shell.trim().isEmpty ? 'bash' : script.shell.trim();
+      var shell = script.shell.trim().isEmpty ? 'bash' : script.shell.trim();
+      if (shell == 'sh') shell = 'bash';
+      if (Platform.isWindows) {
+        if (shell != 'bat') {
+          throw const AppException(
+            code: AppErrorCode.validation,
+            title: '脚本解释器不支持',
+            message: 'Windows 本地脚本仅支持 bat。',
+            suggestion: '请将脚本解释器切换为 bat。',
+          );
+        }
+      } else {
+        if (shell != 'bash') {
+          throw const AppException(
+            code: AppErrorCode.validation,
+            title: '脚本解释器不支持',
+            message: 'Linux 本地脚本仅支持 bash。',
+            suggestion: '请将脚本解释器切换为 bash。',
+          );
+        }
+      }
       script = script.copyWith(shell: shell);
     }
 
@@ -267,7 +291,13 @@ class TasksController extends GetxController {
     }
 
     final batches = await AppServices.I.batchesStore(pid).list();
-    final usedBy = batches.where((b) => b.taskOrder.contains(id)).toList();
+    final usedBy = batches
+        .where(
+          (b) =>
+              b.taskItems.any((i) => i.taskId == id) ||
+              (b.taskItems.isEmpty && b.taskOrder.contains(id)),
+        )
+        .toList();
     if (usedBy.isNotEmpty) {
       final lines = usedBy
           .map((b) => '- ${b.name} (${b.id.substring(0, 8)})')

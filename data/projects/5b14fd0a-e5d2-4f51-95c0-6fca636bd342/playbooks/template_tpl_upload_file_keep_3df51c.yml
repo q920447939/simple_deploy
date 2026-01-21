@@ -1,0 +1,21 @@
+- name: Upload file to directory (keep name)
+  hosts: all
+  gather_facts: false
+  become: yes
+  vars:
+    remote_dest_dir: "/opt/app"
+    file_mode: "0644"
+    ansible_python_interpreter: "{{ python | default('/usr/bin/python3') }}"
+
+  tasks:
+    - name: Ensure destination directory exists
+      ansible.builtin.file:
+        path: "{{ remote_dest_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: Copy file
+      ansible.builtin.copy:
+        src: "{{ run_dir }}/{{ task_files.file[0] }}"
+        dest: "{{ remote_dest_dir }}/{{ task_files.file[0] | basename }}"
+        mode: "{{ file_mode }}"

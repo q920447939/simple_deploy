@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart' as m;
 import 'package:flutter_screenutil/flutter_screenutil.dart';
@@ -10,8 +11,10 @@ import 'package:shadcn_flutter/shadcn_flutter.dart';
 import '../../../model/file_slot.dart';
 import '../../../model/playbook_meta.dart';
 import '../../../model/task.dart';
+import '../../../model/task_template.dart';
 import '../../../services/app_services.dart';
 import '../../../services/core/app_error.dart';
+import '../../../services/templates/task_template_store.dart';
 import '../../controllers/playbooks_controller.dart';
 import '../../controllers/tasks_controller.dart';
 import '../../widgets/app_error_dialog.dart';
@@ -46,6 +49,44 @@ class TasksPage extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _TemplatePickDialog extends StatelessWidget {
+  final List<TaskTemplate> templates;
+
+  const _TemplatePickDialog({required this.templates});
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('选择任务模板'),
+      content: SizedBox(
+        width: 560.w,
+        height: 420.h,
+        child: ListView.separated(
+          itemCount: templates.length,
+          separatorBuilder: (context, index) => const Divider(height: 1),
+          itemBuilder: (context, i) {
+            final t = templates[i];
+            return m.ListTile(
+              title: Text(t.name),
+              subtitle: Text(t.description).muted(),
+              trailing: Text(
+                t.isAnsiblePlaybook ? 'Playbook' : 'Script',
+              ).muted(),
+              onTap: () => Navigator.of(context).pop(t),
+            );
+          },
+        ),
+      ),
+      actions: [
+        OutlineButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('取消'),
+        ),
+      ],
     );
   }
 }
@@ -189,6 +230,106 @@ class _TaskSidebar extends StatelessWidget {
       }
     }
 
+    Future<void> createTaskFromTemplate() async {
+      final pid = controller.projectId;
+      if (pid == null) return;
+      try {
+        final store = TaskTemplateStore();
+        final templates = await store.list();
+        if (!context.mounted) return;
+        if (templates.isEmpty) {
+          throw const AppException(
+            code: AppErrorCode.validation,
+            title: '无可用模板',
+            message: '未找到可用的任务模板。',
+            suggestion: '请检查 templates.json 是否存在或更新安装包。',
+          );
+        }
+        final picked = await showDialog<TaskTemplate>(
+          context: context,
+          builder: (context) => _TemplatePickDialog(templates: templates),
+        );
+        if (picked == null) return;
+
+        String? playbookId;
+        TaskScript? script;
+        if (picked.isAnsiblePlaybook) {
+          final text = await store.readPlaybookText(picked);
+          final newId = AppServices.I.uuid.v4();
+          final now = DateTime.now();
+          final ext =
+              (picked.playbookPath ?? '').toLowerCase().endsWith('.yaml')
+              ? '.yaml'
+              : '.yml';
+          final relativePath =
+              'playbooks/template_${picked.id}_${newId.substring(0, 6)}$ext';
+          final meta = PlaybookMeta(
+            id: newId,
+            name: picked.playbookName ?? picked.name,
+            description: picked.playbookDescription ?? picked.description,
+            relativePath: relativePath,
+            updatedAt: now,
+          );
+          final pbStore = AppServices.I.playbooksStore(pid);
+          await pbStore.writePlaybookText(meta, text);
+          await pbStore.upsertMeta(meta);
+          playbookId = newId;
+          await playbooks.load();
+        } else if (picked.isLocalScript) {
+          script = picked.script;
+          if (script == null) {
+            throw const AppException(
+              code: AppErrorCode.validation,
+              title: '模板不完整',
+              message: '脚本模板缺少脚本内容。',
+              suggestion: '请更新模板索引或联系管理员。',
+            );
+          }
+        }
+
+        final task = Task(
+          id: AppServices.I.uuid.v4(),
+          name: picked.name,
+          description: picked.description,
+          type: picked.type,
+          playbookId: playbookId,
+          script: script,
+          fileSlots: picked.fileSlots,
+          variables: picked.variables,
+          outputs: picked.outputs,
+        );
+        await controller.upsert(task);
+        if (context.mounted) {
+          showToast(
+            context: context,
+            builder: (context, overlay) => Card(
+              child: Padding(
+                padding: EdgeInsets.all(12.r),
+                child: const Text('模板任务已创建'),
+              ),
+            ),
+          );
+        }
+      } on AppException catch (e) {
+        if (context.mounted) {
+          await showAppErrorDialog(context, e);
+        }
+      } on Object catch (e) {
+        if (context.mounted) {
+          await showAppErrorDialog(
+            context,
+            AppException(
+              code: AppErrorCode.unknown,
+              title: '创建模板任务失败',
+              message: e.toString(),
+              suggestion: '请检查模板资源后重试。',
+              cause: e,
+            ),
+          );
+        }
+      }
+    }
+
     return Column(
       children: [
         // Sidebar Header
@@ -228,6 +369,12 @@ class _TaskSidebar extends StatelessWidget {
                   }
                 },
                 child: const Icon(Icons.add, size: 18),
+              ),
+              SizedBox(width: 4.w),
+              GhostButton(
+                density: ButtonDensity.icon,
+                onPressed: createTaskFromTemplate,
+                child: const Icon(Icons.auto_awesome, size: 16),
               ),
               SizedBox(width: 4.w),
               GhostButton(
@@ -711,13 +858,17 @@ class _TaskEditDialogState extends State<_TaskEditDialog> {
     'run_id',
     'run_dir',
     'files',
+    'files_by_item',
     'task',
+    'task_item',
     'task_files',
   };
 
   @override
   void initState() {
     super.initState();
+    final defaultShell = Platform.isWindows ? 'bat' : 'bash';
+    _shell = defaultShell;
     final i = widget.initial;
     if (i != null) {
       _name.text = i.name;
@@ -730,6 +881,11 @@ class _TaskEditDialogState extends State<_TaskEditDialog> {
       final s = i.script;
       if (s != null) {
         _shell = s.shell;
+        if (_shell == 'sh') _shell = 'bash';
+        final allowed = Platform.isWindows ? const ['bat'] : const ['bash'];
+        if (!allowed.contains(_shell)) {
+          _shell = defaultShell;
+        }
         _script.text = s.content;
       }
     } else {
@@ -922,7 +1078,7 @@ class _TaskEditDialogState extends State<_TaskEditDialog> {
           code: AppErrorCode.validation,
           title: '脚本不能为空',
           message: '脚本任务必须填写脚本内容。',
-          suggestion: '填写 bash/sh 脚本后重试。',
+          suggestion: '填写 bash/bat 脚本后重试。',
         );
       }
     }
@@ -1015,10 +1171,11 @@ class _TaskEditDialogState extends State<_TaskEditDialog> {
                     key: ValueKey(_shell),
                     initialValue: _shell,
                     decoration: const m.InputDecoration(labelText: '解释器'),
-                    items: const [
-                      m.DropdownMenuItem(value: 'bash', child: Text('bash')),
-                      m.DropdownMenuItem(value: 'sh', child: Text('sh')),
-                    ],
+                    items: (Platform.isWindows ? const ['bat'] : const ['bash'])
+                        .map(
+                          (v) => m.DropdownMenuItem(value: v, child: Text(v)),
+                        )
+                        .toList(),
                     onChanged: (v) => setState(() => _shell = v ?? _shell),
                   ),
                   SizedBox(height: 12.h),

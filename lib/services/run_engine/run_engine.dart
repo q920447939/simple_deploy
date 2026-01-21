@@ -28,6 +28,13 @@ import '../offline_assets/offline_assets.dart';
 import '../ssh/ssh_service.dart';
 import 'control_node_bootstrapper.dart';
 
+class _BatchTaskEntry {
+  final BatchTaskItem item;
+  final Task task;
+
+  const _BatchTaskEntry({required this.item, required this.task});
+}
+
 class RunEngine {
   final SshService ssh;
   final AppLogger logger;
@@ -95,11 +102,8 @@ class RunEngine {
       );
     }
 
-    final orderedTasks = batch.taskOrder
-        .map((id) => _firstWhereOrNull(allTasks, (t) => t.id == id))
-        .whereType<Task>()
-        .toList();
-    if (orderedTasks.isEmpty) {
+    final orderedEntries = _resolveOrderedEntries(batch, allTasks);
+    if (orderedEntries.isEmpty) {
       throw const AppException(
         code: AppErrorCode.unknown,
         title: '任务为空',
@@ -107,6 +111,7 @@ class RunEngine {
         suggestion: '编辑批次并选择至少 1 个任务。',
       );
     }
+    final orderedTasks = [for (final e in orderedEntries) e.task];
 
     final runId = uuid.v4();
     final lockInfo = BatchLockInfo(
@@ -121,8 +126,8 @@ class RunEngine {
       data: {'project_id': projectId, 'batch_id': batch.id, 'run_id': runId},
     );
 
-    final effectiveVarsByTaskId = _buildEffectiveVarsByTaskId(
-      orderedTasks,
+    final effectiveVarsByItemId = _buildEffectiveVarsByItemId(
+      orderedEntries,
       inputs.vars,
     );
 
@@ -135,13 +140,14 @@ class RunEngine {
       status: RunStatus.running,
       result: RunResult.failed,
       taskResults: [
-        for (final t in orderedTasks)
+        for (final e in orderedEntries)
           TaskRunResult(
-            taskId: t.id,
+            batchTaskId: e.item.id,
+            taskId: e.task.id,
             status: TaskExecStatus.waiting,
             exitCode: null,
             fileInputs: null,
-            vars: effectiveVarsByTaskId[t.id],
+            vars: effectiveVarsByItemId[e.item.id],
             error: null,
           ),
       ],
@@ -162,25 +168,26 @@ class RunEngine {
 
       _assertTaskOrderOrThrow(orderedTasks);
 
-      if (orderedTasks.any((t) => t.isLocalScript)) {
+      if (orderedEntries.any((e) => e.task.isLocalScript)) {
         final preStage = await _prepareStage(
           pp: pp,
           runId: runId,
-          tasks: orderedTasks,
+          entries: orderedEntries,
           playbooks: allPlaybooks,
-          remoteFilesMapping: const <String, Map<String, List<String>>>{},
+          remoteFilesMappingByItemId:
+              const <String, Map<String, List<String>>>{},
           managedServers: managedServers,
           projectId: projectId,
-          effectiveVarsByTaskId: effectiveVarsByTaskId,
+          effectiveVarsByItemId: effectiveVarsByItemId,
         );
 
         final localRun = await _runLocalScripts(
           pp: pp,
           runId: runId,
-          tasks: orderedTasks,
+          entries: orderedEntries,
           stage: preStage.stage,
           remoteRunDir: preStage.remoteRunDir,
-          effectiveVarsByTaskId: effectiveVarsByTaskId,
+          effectiveVarsByItemId: effectiveVarsByItemId,
           run: run,
           runsStore: runsStore,
         );
@@ -193,15 +200,16 @@ class RunEngine {
       final preparedInputs = await _persistFileInputsToArtifacts(
         pp: pp,
         runId: runId,
-        orderedTasks: orderedTasks,
+        orderedEntries: orderedEntries,
         fileInputs: inputs.fileInputs,
       );
 
       run = run.copyWith(
         taskResults: [
-          for (var i = 0; i < orderedTasks.length; i++)
+          for (var i = 0; i < orderedEntries.length; i++)
             run.taskResults[i].copyWith(
-              fileInputs: preparedInputs.remoteFilesMapping[orderedTasks[i].id],
+              fileInputs: preparedInputs
+                  .remoteFilesMappingByItemId[orderedEntries[i].item.id],
             ),
         ],
       );
@@ -210,18 +218,17 @@ class RunEngine {
       final stagePrepared = await _prepareStage(
         pp: pp,
         runId: runId,
-        tasks: orderedTasks,
+        entries: orderedEntries,
         playbooks: allPlaybooks,
-        remoteFilesMapping: preparedInputs.remoteFilesMapping,
+        remoteFilesMappingByItemId: preparedInputs.remoteFilesMappingByItemId,
         managedServers: managedServers,
         projectId: projectId,
-        effectiveVarsByTaskId: effectiveVarsByTaskId,
+        effectiveVarsByItemId: effectiveVarsByItemId,
       );
 
       final bundle = await _zipStage(
         stage: stagePrepared.stage,
         runArtifacts: pp.runArtifactsFor(runId),
-        remoteFilesMapping: preparedInputs.remoteFilesMapping,
         remoteRunDir: stagePrepared.remoteRunDir,
       );
 
@@ -562,18 +569,39 @@ class RunEngine {
     }
   }
 
-  Map<String, Map<String, String>> _buildEffectiveVarsByTaskId(
-    List<Task> tasks,
+  List<_BatchTaskEntry> _resolveOrderedEntries(
+    Batch batch,
+    List<Task> allTasks,
+  ) {
+    final items = batch.orderedTaskItems();
+    if (items.isEmpty) return const [];
+    final taskById = {for (final t in allTasks) t.id: t};
+    final entries = <_BatchTaskEntry>[];
+    for (final item in items) {
+      final task = taskById[item.taskId];
+      if (task == null) continue;
+      if (!item.enabled) continue;
+      entries.add(_BatchTaskEntry(item: item, task: task));
+    }
+    return entries;
+  }
+
+  Map<String, Map<String, String>> _buildEffectiveVarsByItemId(
+    List<_BatchTaskEntry> entries,
     Map<String, Map<String, String>> inputVars,
   ) {
     final out = <String, Map<String, String>>{};
-    for (final t in tasks) {
+    for (final entry in entries) {
+      final t = entry.task;
       final defs = t.variables;
       if (defs.isEmpty) continue;
       final map = <String, String>{
         for (final d in defs) d.name: d.defaultValue,
       };
-      final provided = inputVars[t.id] ?? const <String, String>{};
+      final provided =
+          inputVars[entry.item.id] ??
+          inputVars[t.id] ??
+          const <String, String>{};
 
       // Disallow unknown vars to catch copy/paste mistakes.
       final allowed = defs.map((d) => d.name).toSet();
@@ -601,7 +629,7 @@ class RunEngine {
           );
         }
       }
-      out[t.id] = map;
+      out[entry.item.id] = map;
     }
     return out;
   }
@@ -609,12 +637,12 @@ class RunEngine {
   Future<_PreparedStage> _prepareStage({
     required ProjectPaths pp,
     required String runId,
-    required List<Task> tasks,
+    required List<_BatchTaskEntry> entries,
     required List<PlaybookMeta> playbooks,
-    required Map<String, Map<String, List<String>>> remoteFilesMapping,
+    required Map<String, Map<String, List<String>>> remoteFilesMappingByItemId,
     required List<Server> managedServers,
     required String projectId,
-    required Map<String, Map<String, String>> effectiveVarsByTaskId,
+    required Map<String, Map<String, String>> effectiveVarsByItemId,
   }) async {
     final runArtifacts = pp.runArtifactsFor(runId);
     await runArtifacts.create(recursive: true);
@@ -629,11 +657,11 @@ class RunEngine {
     await filesDir.create(recursive: true);
 
     // Copy staged user inputs into bundle under files/**.
-    for (final task in tasks) {
-      final mapping = remoteFilesMapping[task.id];
+    for (final entry in entries) {
+      final mapping = remoteFilesMappingByItemId[entry.item.id];
       if (mapping == null) continue;
-      for (final entry in mapping.entries) {
-        for (final remoteRel in entry.value) {
+      for (final slotEntry in mapping.entries) {
+        for (final remoteRel in slotEntry.value) {
           if (!remoteRel.startsWith('files/')) {
             // control_path bindings point to pre-existing control-node paths.
             // They are not staged into the bundle.
@@ -663,8 +691,8 @@ class RunEngine {
       await _copyDirectory(pp.playbooksDir, dstDir);
     }
     // Ensure referenced playbook entry files exist in bundle.
-    for (final task in tasks.where((t) => t.isAnsiblePlaybook)) {
-      final pbId = task.playbookId;
+    for (final entry in entries.where((e) => e.task.isAnsiblePlaybook)) {
+      final pbId = entry.task.playbookId;
       if (pbId == null) continue;
       final meta = _firstWhereOrNull(playbooks, (p) => p.id == pbId);
       if (meta == null) continue;
@@ -681,10 +709,17 @@ class RunEngine {
     ).writeAsString('$inventory\n', flush: true);
 
     final remoteRunDir = '/tmp/simple_deploy/$projectId/$runId';
+    final filesByTaskId = <String, Map<String, List<String>>>{};
+    for (final entry in entries) {
+      final mapping = remoteFilesMappingByItemId[entry.item.id];
+      if (mapping == null) continue;
+      filesByTaskId[entry.task.id] = mapping;
+    }
     final common = <String, Object?>{
       'run_id': runId,
       'run_dir': remoteRunDir,
-      'files': remoteFilesMapping,
+      'files': filesByTaskId,
+      'files_by_item': remoteFilesMappingByItemId,
     };
     await File(p.join(stage.path, 'vars.json')).writeAsString(
       '${const JsonEncoder.withIndent('  ').convert(common)}\n',
@@ -692,8 +727,9 @@ class RunEngine {
     );
 
     // Per-task vars: vars_task_<index>.json
-    for (var i = 0; i < tasks.length; i++) {
-      final t = tasks[i];
+    for (var i = 0; i < entries.length; i++) {
+      final entry = entries[i];
+      final t = entry.task;
       final vars = <String, Object?>{
         ...common,
         'task': <String, Object?>{
@@ -701,11 +737,20 @@ class RunEngine {
           'index': i,
           'name': t.name,
           'type': t.type,
+          'item_id': entry.item.id,
+          'item_name': entry.item.name,
+        },
+        'task_item': <String, Object?>{
+          'id': entry.item.id,
+          'name': entry.item.name,
+          'task_id': entry.item.taskId,
+          'index': i,
         },
         'task_files':
-            remoteFilesMapping[t.id] ?? const <String, List<String>>{},
+            remoteFilesMappingByItemId[entry.item.id] ??
+            const <String, List<String>>{},
       };
-      final eff = effectiveVarsByTaskId[t.id];
+      final eff = effectiveVarsByItemId[entry.item.id];
       if (eff != null) {
         for (final e in eff.entries) {
           vars[e.key] = e.value;
@@ -723,7 +768,6 @@ class RunEngine {
   Future<_PreparedBundle> _zipStage({
     required Directory stage,
     required Directory runArtifacts,
-    required Map<String, Map<String, List<String>>> remoteFilesMapping,
     required String remoteRunDir,
   }) async {
     final zip = File(p.join(runArtifacts.path, 'bundle.zip'));
@@ -748,20 +792,16 @@ class RunEngine {
         suggestion: '检查本机磁盘空间/权限，并重试执行。',
       );
     }
-    return _PreparedBundle(
-      bundleZip: zip,
-      remoteRunDir: remoteRunDir,
-      filesMapping: remoteFilesMapping,
-    );
+    return _PreparedBundle(bundleZip: zip, remoteRunDir: remoteRunDir);
   }
 
   Future<_PreparedLocalRun> _runLocalScripts({
     required ProjectPaths pp,
     required String runId,
-    required List<Task> tasks,
+    required List<_BatchTaskEntry> entries,
     required Directory stage,
     required String remoteRunDir,
-    required Map<String, Map<String, String>> effectiveVarsByTaskId,
+    required Map<String, Map<String, String>> effectiveVarsByItemId,
     required Run run,
     required RunsStore runsStore,
   }) async {
@@ -769,8 +809,9 @@ class RunEngine {
     await runArtifacts.create(recursive: true);
 
     // Execute local_script tasks (pre steps).
-    for (var i = 0; i < tasks.length; i++) {
-      final task = tasks[i];
+    for (var i = 0; i < entries.length; i++) {
+      final entry = entries[i];
+      final task = entry.task;
       if (!task.isLocalScript) continue;
 
       run = _setTaskResult(
@@ -806,10 +847,12 @@ class RunEngine {
           return _PreparedLocalRun(run: run, aborted: true);
         }
 
-        final shell = script.shell.trim().isEmpty
-            ? 'bash'
+        var shell = script.shell.trim().isEmpty
+            ? (Platform.isWindows ? 'bat' : 'bash')
             : script.shell.trim();
-        if (shell != 'bash' && shell != 'sh') {
+        if (shell == 'sh') shell = 'bash';
+        final allowed = Platform.isWindows ? 'bat' : 'bash';
+        if (shell != allowed) {
           sink.writeln('[local_script] unsupported shell=$shell');
           run = _setTaskResult(
             run,
@@ -824,7 +867,8 @@ class RunEngine {
             status: RunStatus.ended,
             result: RunResult.failed,
             endedAt: DateTime.now(),
-            errorSummary: '脚本任务失败：${task.name} (unsupported shell)',
+            errorSummary:
+                '脚本任务失败：${task.name} (unsupported shell, expect $allowed)',
           );
           await runsStore.write(run);
           return _PreparedLocalRun(run: run, aborted: true);
@@ -843,7 +887,7 @@ class RunEngine {
         );
 
         sink.writeln(
-          '[local_script] shell=$shell task=${task.id.substring(0, 8)} name=${task.name}',
+          '[local_script] shell=$shell task=${task.id.substring(0, 8)} item=${entry.item.id.substring(0, 8)} name=${task.name}',
         );
         sink.writeln('[local_script] cwd=${stage.path}');
         sink.writeln(
@@ -856,11 +900,15 @@ class RunEngine {
         env['SD_REMOTE_RUN_DIR'] = remoteRunDir;
         env['SD_STAGE_DIR'] = stage.path;
         env['SD_TASK_ID'] = task.id;
+        env['SD_TASK_ITEM_ID'] = entry.item.id;
         env['SD_TASK_INDEX'] = '$i';
-        env['SD_TASK_NAME'] = task.name;
+        env['SD_TASK_NAME'] = entry.item.name.trim().isEmpty
+            ? task.name
+            : entry.item.name;
         env['SD_VARS_JSON'] = p.join(stage.path, 'vars.json');
         env['SD_TASK_VARS_JSON'] = p.join(stage.path, 'vars_task_$i.json');
-        final eff = effectiveVarsByTaskId[task.id] ?? const <String, String>{};
+        final eff =
+            effectiveVarsByItemId[entry.item.id] ?? const <String, String>{};
         for (final e in eff.entries) {
           env['SD_${e.key}'] = e.value;
           env['SD_${e.key.toUpperCase()}'] = e.value;
@@ -868,13 +916,23 @@ class RunEngine {
 
         Process proc;
         try {
-          proc = await Process.start(
-            shell,
-            [scriptFile.path],
-            workingDirectory: stage.path,
-            environment: env,
-            runInShell: false,
-          );
+          if (shell == 'bat') {
+            proc = await Process.start(
+              'cmd',
+              ['/c', scriptFile.path],
+              workingDirectory: stage.path,
+              environment: env,
+              runInShell: false,
+            );
+          } else {
+            proc = await Process.start(
+              shell,
+              [scriptFile.path],
+              workingDirectory: stage.path,
+              environment: env,
+              runInShell: false,
+            );
+          }
         } on Object catch (e) {
           sink.writeln('[local_script] start failed: $e');
           run = _setTaskResult(
@@ -960,21 +1018,41 @@ class RunEngine {
   Future<_PreparedFileInputs> _persistFileInputsToArtifacts({
     required ProjectPaths pp,
     required String runId,
-    required List<Task> orderedTasks,
+    required List<_BatchTaskEntry> orderedEntries,
     required Map<String, Map<String, List<FileBinding>>> fileInputs,
   }) async {
     final runArtifacts = pp.runArtifactsFor(runId);
     await runArtifacts.create(recursive: true);
 
-    final remoteFilesMapping = <String, Map<String, List<String>>>{};
-    final taskIndexById = <String, int>{
-      for (var i = 0; i < orderedTasks.length; i++) orderedTasks[i].id: i,
+    final remoteFilesMappingByItemId = <String, Map<String, List<String>>>{};
+    final entryByItemId = <String, _BatchTaskEntry>{
+      for (final entry in orderedEntries) entry.item.id: entry,
     };
-    final taskById = {for (final t in orderedTasks) t.id: t};
+    final taskById = <String, Task>{
+      for (final entry in orderedEntries) entry.task.id: entry.task,
+    };
+    final taskIndexByItemId = <String, int>{
+      for (var i = 0; i < orderedEntries.length; i++)
+        orderedEntries[i].item.id: i,
+    };
+    final taskIndexByTaskId = <String, int>{};
+    final duplicateTaskIds = <String>{};
+    for (var i = 0; i < orderedEntries.length; i++) {
+      final taskId = orderedEntries[i].task.id;
+      if (taskIndexByTaskId.containsKey(taskId)) {
+        duplicateTaskIds.add(taskId);
+      } else {
+        taskIndexByTaskId[taskId] = i;
+      }
+    }
+    for (final dup in duplicateTaskIds) {
+      taskIndexByTaskId.remove(dup);
+    }
 
-    for (var taskIndex = 0; taskIndex < orderedTasks.length; taskIndex++) {
-      final task = orderedTasks[taskIndex];
-      final taskInputs = fileInputs[task.id];
+    for (var taskIndex = 0; taskIndex < orderedEntries.length; taskIndex++) {
+      final entry = orderedEntries[taskIndex];
+      final task = entry.task;
+      final taskInputs = fileInputs[entry.item.id] ?? fileInputs[task.id];
       if (taskInputs == null) {
         // Allow no inputs only if the task doesn't require any file slots.
         final requiredSlots = task.fileSlots.where((s) => s.required).toList();
@@ -1009,9 +1087,9 @@ class RunEngine {
         }
       }
 
-      for (final entry in taskInputs.entries) {
-        final slotName = entry.key;
-        final selected = entry.value;
+      for (final slotEntry in taskInputs.entries) {
+        final slotName = slotEntry.key;
+        final selected = slotEntry.value;
         if (selected.isEmpty) continue;
 
         if (slotName.contains('/') ||
@@ -1036,7 +1114,20 @@ class RunEngine {
             final sourceId = binding.sourceTaskId;
             final sourceOutput = binding.sourceOutput;
             if (sourceId != null) {
-              final sourceTask = taskById[sourceId];
+              var sourceTask = taskById[sourceId];
+              var sourceIndex = taskIndexByTaskId[sourceId];
+              final sourceEntry = entryByItemId[sourceId];
+              if (sourceEntry != null) {
+                sourceTask = sourceEntry.task;
+                sourceIndex = taskIndexByItemId[sourceEntry.item.id];
+              } else if (sourceIndex == null) {
+                throw AppException(
+                  code: AppErrorCode.validation,
+                  title: '脚本产物来源不唯一',
+                  message: '脚本产物来源无法定位到唯一任务实例。',
+                  suggestion: '请重新选择脚本产物来源。',
+                );
+              }
               if (sourceTask == null || !sourceTask.isLocalScript) {
                 throw AppException(
                   code: AppErrorCode.validation,
@@ -1045,8 +1136,7 @@ class RunEngine {
                   suggestion: '请重新选择脚本产物后再执行。',
                 );
               }
-              final sourceIndex = taskIndexById[sourceId] ?? -1;
-              if (sourceIndex >= taskIndex) {
+              if ((sourceIndex ?? -1) >= taskIndex) {
                 throw AppException(
                   code: AppErrorCode.validation,
                   title: '脚本产物顺序不合法',
@@ -1086,8 +1176,8 @@ class RunEngine {
                 suggestion: '使用以 / 开头的绝对路径。',
               );
             }
-            remoteFilesMapping
-                .putIfAbsent(task.id, () => <String, List<String>>{})
+            remoteFilesMappingByItemId
+                .putIfAbsent(entry.item.id, () => <String, List<String>>{})
                 .putIfAbsent(slotName, () => <String>[])
                 .add(rawPath);
             continue;
@@ -1132,15 +1222,17 @@ class RunEngine {
             slotName,
             uniqueName,
           );
-          remoteFilesMapping
-              .putIfAbsent(task.id, () => <String, List<String>>{})
+          remoteFilesMappingByItemId
+              .putIfAbsent(entry.item.id, () => <String, List<String>>{})
               .putIfAbsent(slotName, () => <String>[])
               .add(remoteRel);
         }
       }
     }
 
-    return _PreparedFileInputs(remoteFilesMapping: remoteFilesMapping);
+    return _PreparedFileInputs(
+      remoteFilesMappingByItemId: remoteFilesMappingByItemId,
+    );
   }
 
   Future<String> _pickUniqueName(Directory dir, String desired) async {
@@ -1437,9 +1529,9 @@ class RunEngine {
 }
 
 class _PreparedFileInputs {
-  final Map<String, Map<String, List<String>>> remoteFilesMapping;
+  final Map<String, Map<String, List<String>>> remoteFilesMappingByItemId;
 
-  const _PreparedFileInputs({required this.remoteFilesMapping});
+  const _PreparedFileInputs({required this.remoteFilesMappingByItemId});
 }
 
 class _PreparedStage {
@@ -1473,13 +1565,8 @@ class _PreparedLocalRun {
 class _PreparedBundle {
   final File bundleZip;
   final String remoteRunDir;
-  final Map<String, Map<String, List<String>>> filesMapping;
 
-  const _PreparedBundle({
-    required this.bundleZip,
-    required this.remoteRunDir,
-    required this.filesMapping,
-  });
+  const _PreparedBundle({required this.bundleZip, required this.remoteRunDir});
 }
 
 class _LogSanitizer {

@@ -1,0 +1,59 @@
+{
+  "id": "e43fe884-2754-4a6f-8ade-08278d5da23b",
+  "name": "firework deploy",
+  "description": "",
+  "status": "paused",
+  "control_server_id": "311d01f3-e8c5-4928-9927-db5c8604118e",
+  "managed_server_ids": [
+    "cd7add52-553b-466a-9836-118f10570082"
+  ],
+  "task_order": [
+    "5edef429-0e7d-4195-8b01-34a41f0cba83",
+    "be02ed6b-accc-49dd-92e8-0d49b17202a5",
+    "cc9e6ae8-454d-4ad9-834f-024e297fad0e"
+  ],
+  "task_items": [
+    {
+      "id": "5edef429-0e7d-4195-8b01-34a41f0cba83",
+      "task_id": "f1f1c8b9-4d29-4136-b025-004bf3670f6f",
+      "name": "",
+      "enabled": true,
+      "inputs": {
+        "file_inputs": {},
+        "vars": {
+          "project_dir": "/mnt/newdisk/work_space/musk/firework_back/firework_admin_back",
+          "artifact_glob": "target/*.jar",
+          "output_path": "/tmp/simple_deploy_artifacts/firework_admin_back.jar",
+          "maven_cmd": "mvn"
+        }
+      }
+    },
+    {
+      "id": "be02ed6b-accc-49dd-92e8-0d49b17202a5",
+      "task_id": "1afa62bf-13ad-4f2c-aafa-5cf2ffb4273a",
+      "name": "",
+      "enabled": true,
+      "inputs": {
+        "file_inputs": {},
+        "vars": {
+          "remote_dest_dir": "/home/firework/firework_admin_back",
+          "file_mode": "0644",
+          "python": "/usr/bin/python3"
+        }
+      }
+    },
+    {
+      "id": "cc9e6ae8-454d-4ad9-834f-024e297fad0e",
+      "task_id": "395f9a24-b9ef-468e-a2b3-ab40a1a28a3e",
+      "name": "",
+      "enabled": true,
+      "inputs": {
+        "file_inputs": {},
+        "vars": {}
+      }
+    }
+  ],
+  "created_at": "2026-01-21T15:55:21.993279",
+  "updated_at": "2026-01-21T16:41:23.659308",
+  "last_run_id": "a31bfad3-3c2c-43ff-a3db-23a319dcde0c"
+}

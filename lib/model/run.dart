@@ -54,6 +54,7 @@ class BizStatus {
 }
 
 class TaskRunResult {
+  final String? batchTaskId;
   final String taskId;
   final String status; // waiting|running|success|failed
   final int? exitCode;
@@ -62,6 +63,7 @@ class TaskRunResult {
   final String? error;
 
   const TaskRunResult({
+    required this.batchTaskId,
     required this.taskId,
     required this.status,
     required this.exitCode,
@@ -71,6 +73,7 @@ class TaskRunResult {
   });
 
   TaskRunResult copyWith({
+    String? batchTaskId,
     String? status,
     int? exitCode,
     Map<String, List<String>>? fileInputs,
@@ -78,6 +81,7 @@ class TaskRunResult {
     String? error,
   }) {
     return TaskRunResult(
+      batchTaskId: batchTaskId ?? this.batchTaskId,
       taskId: taskId,
       status: status ?? this.status,
       exitCode: exitCode ?? this.exitCode,
@@ -109,6 +113,7 @@ class TaskRunResult {
       }
     }
     return TaskRunResult(
+      batchTaskId: json['batch_task_id'] as String?,
       taskId: json['task_id'] as String,
       status: (json['status'] as String?) ?? TaskExecStatus.waiting,
       exitCode: (json['exit_code'] as num?)?.toInt(),
@@ -120,6 +125,7 @@ class TaskRunResult {
 
   Map<String, Object?> toJson() {
     return {
+      'batch_task_id': batchTaskId,
       'task_id': taskId,
       'status': status,
       'exit_code': exitCode,

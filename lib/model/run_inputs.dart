@@ -1,10 +1,10 @@
 import 'file_binding.dart';
 
 class RunInputs {
-  /// task_id -> slot_name -> [file bindings]
+  /// batch_task_id (preferred) or task_id (legacy) -> slot_name -> [file bindings]
   final Map<String, Map<String, List<FileBinding>>> fileInputs;
 
-  /// task_id -> var_name -> value
+  /// batch_task_id (preferred) or task_id (legacy) -> var_name -> value
   final Map<String, Map<String, String>> vars;
 
   const RunInputs({required this.fileInputs, required this.vars});
@@ -29,8 +29,7 @@ class RunInputs {
             final list = <FileBinding>[];
             for (final p in v) {
               if (p is! Map) continue;
-              final binding =
-                  FileBinding.fromJson(p.cast<String, Object?>());
+              final binding = FileBinding.fromJson(p.cast<String, Object?>());
               if (binding.path.trim().isEmpty) continue;
               list.add(binding.copyWith(path: binding.path.trim()));
             }
@@ -72,10 +71,8 @@ class RunInputs {
         (taskId, slotMap) => MapEntry(
           taskId,
           slotMap.map(
-            (slot, bindings) => MapEntry(
-              slot,
-              bindings.map((b) => b.toJson()).toList(),
-            ),
+            (slot, bindings) =>
+                MapEntry(slot, bindings.map((b) => b.toJson()).toList()),
           ),
         ),
       ),

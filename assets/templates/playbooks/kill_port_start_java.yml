@@ -1,0 +1,41 @@
+- name: Kill port then start Java program
+  hosts: all
+  gather_facts: false
+  become: yes
+  vars:
+    port: "8080"
+    java_cmd: "java -jar /opt/app/app.jar"
+    work_dir: "/opt/app"
+    log_path: "/opt/app/app.log"
+    signal: "9"
+    ansible_python_interpreter: "{{ python | default('/usr/bin/python3') }}"
+
+  tasks:
+    - name: Kill process if listening on port (ignore if not found)
+      ansible.builtin.shell: |
+        set +e
+        PORT="{{ port }}"
+        SIG="{{ signal | default('9') }}"
+        if command -v lsof >/dev/null 2>&1; then
+          PIDS=$(lsof -ti tcp:${PORT} || true)
+        elif command -v ss >/dev/null 2>&1; then
+          PIDS=$(ss -ltnp "sport = :${PORT}" 2>/dev/null | awk -F'pid=' '{print $2}' | awk -F',' '{print $1}' | tr '\n' ' ')
+        elif command -v netstat >/dev/null 2>&1; then
+          PIDS=$(netstat -lntp 2>/dev/null | awk '$4 ~ ":'"${PORT}"'" {print $7}' | awk -F'/' '{print $1}' | tr '\n' ' ')
+        else
+          PIDS=""
+        fi
+        if [ -n "$PIDS" ]; then
+          kill -${SIG} $PIDS >/dev/null 2>&1 || true
+        fi
+        exit 0
+      args:
+        executable: /bin/bash
+
+    - name: Start Java program (detached)
+      ansible.builtin.shell: |
+        set -e
+        cd "{{ work_dir }}"
+        nohup {{ java_cmd }} > "{{ log_path }}" 2>&1 &
+      args:
+        executable: /bin/bash
