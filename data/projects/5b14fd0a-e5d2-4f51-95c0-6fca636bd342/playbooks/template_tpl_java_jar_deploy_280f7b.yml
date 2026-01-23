@@ -1,0 +1,26 @@
+- name: Deploy Java jar
+  hosts: all
+  gather_facts: false
+  become: yes
+  vars:
+    app_name: "app"
+    deploy_dir: "/opt/apps"
+    ansible_python_interpreter: "{{ python | default('/usr/bin/python3') }}"
+
+  tasks:
+    - name: Ensure deploy directory exists
+      ansible.builtin.file:
+        path: "{{ deploy_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: Upload jar
+      ansible.builtin.copy:
+        src: "{{ run_dir }}/{{ task_files.jar[0] }}"
+        dest: "{{ deploy_dir }}/{{ app_name }}.jar"
+        mode: '0644'
+
+    - name: Restart service
+      ansible.builtin.systemd:
+        name: "{{ app_name }}"
+        state: restarted

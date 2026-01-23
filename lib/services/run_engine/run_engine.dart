@@ -202,6 +202,7 @@ class RunEngine {
         runId: runId,
         orderedEntries: orderedEntries,
         fileInputs: inputs.fileInputs,
+        effectiveVarsByItemId: effectiveVarsByItemId,
       );
 
       run = run.copyWith(
@@ -1020,6 +1021,7 @@ class RunEngine {
     required String runId,
     required List<_BatchTaskEntry> orderedEntries,
     required Map<String, Map<String, List<FileBinding>>> fileInputs,
+    required Map<String, Map<String, String>> effectiveVarsByItemId,
   }) async {
     final runArtifacts = pp.runArtifactsFor(runId);
     await runArtifacts.create(recursive: true);
@@ -1031,6 +1033,7 @@ class RunEngine {
     final taskById = <String, Task>{
       for (final entry in orderedEntries) entry.task.id: entry.task,
     };
+    final varsByItemId = effectiveVarsByItemId;
     final taskIndexByItemId = <String, int>{
       for (var i = 0; i < orderedEntries.length; i++)
         orderedEntries[i].item.id: i,
@@ -1113,6 +1116,7 @@ class RunEngine {
           if (binding.isLocalOutput) {
             final sourceId = binding.sourceTaskId;
             final sourceOutput = binding.sourceOutput;
+            Map<String, String>? sourceVars;
             if (sourceId != null) {
               var sourceTask = taskById[sourceId];
               var sourceIndex = taskIndexByTaskId[sourceId];
@@ -1120,6 +1124,7 @@ class RunEngine {
               if (sourceEntry != null) {
                 sourceTask = sourceEntry.task;
                 sourceIndex = taskIndexByItemId[sourceEntry.item.id];
+                sourceVars = varsByItemId[sourceEntry.item.id];
               } else if (sourceIndex == null) {
                 throw AppException(
                   code: AppErrorCode.validation,
@@ -1144,13 +1149,19 @@ class RunEngine {
                   suggestion: '调整任务顺序后重试。',
                 );
               }
-              if (rawPath.isEmpty && sourceOutput != null) {
+              if (sourceOutput != null) {
                 final out = _firstWhereOrNull(
                   sourceTask.outputs,
                   (o) => o.name == sourceOutput,
                 );
-                if (out != null) {
-                  rawPath = out.path.trim();
+                final derived = out == null
+                    ? ''
+                    : _expandPathTemplate(
+                        out.path.trim(),
+                        sourceVars ?? const <String, String>{},
+                      );
+                if (derived.isNotEmpty) {
+                  rawPath = derived;
                 }
               }
             }
@@ -1181,6 +1192,15 @@ class RunEngine {
                 .putIfAbsent(slotName, () => <String>[])
                 .add(rawPath);
             continue;
+          }
+
+          if (binding.isLocalOutput && !p.isAbsolute(rawPath)) {
+            throw AppException(
+              code: AppErrorCode.validation,
+              title: '脚本产物路径不合法',
+              message: '脚本产物路径必须为绝对路径：$rawPath',
+              suggestion: '请检查产物配置或变量模板是否可解析为绝对路径。',
+            );
           }
 
           if (!p.isAbsolute(rawPath)) {
@@ -1293,6 +1313,22 @@ class RunEngine {
       s.replaceAll('\\', '\\\\').replaceAll('"', '\\"');
 
   static String _dq(String s) => '"${_bashEscape(s)}"';
+
+  static final RegExp _varTemplateRe = RegExp(
+    r'\\$\\{([A-Za-z_][A-Za-z0-9_]*)\\}',
+  );
+
+  static String _expandPathTemplate(String input, Map<String, String> vars) {
+    if (input.isEmpty) return input;
+    return input.replaceAllMapped(_varTemplateRe, (m) {
+      final key = m.group(1) ?? '';
+      if (key.isEmpty) return m.group(0) ?? '';
+      return vars[key] ??
+          vars[key.toLowerCase()] ??
+          vars[key.toUpperCase()] ??
+          (m.group(0) ?? '');
+    });
+  }
 
   static Map<String, Object?> _mergeAnsibleSummary(
     Map<String, Object?>? existing, {

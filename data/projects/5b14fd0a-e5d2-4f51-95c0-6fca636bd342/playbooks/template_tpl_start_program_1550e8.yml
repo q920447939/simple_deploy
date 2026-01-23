@@ -1,0 +1,23 @@
+- name: Start program
+  hosts: all
+  gather_facts: false
+  become: yes
+  vars:
+    work_dir: "/opt/app"
+    start_cmd: "/opt/app/app"
+    log_path: "/opt/app/app.log"
+    detach: "true"
+    ansible_python_interpreter: "{{ python | default('/usr/bin/python3') }}"
+
+  tasks:
+    - name: Start program (detached)
+      ansible.builtin.shell: |
+        set -e
+        cd "{{ work_dir }}"
+        if [ "{{ detach | default('true') | lower }}" = "true" ]; then
+          nohup {{ start_cmd }} > "{{ log_path }}" 2>&1 &
+        else
+          {{ start_cmd }}
+        fi
+      args:
+        executable: /bin/bash

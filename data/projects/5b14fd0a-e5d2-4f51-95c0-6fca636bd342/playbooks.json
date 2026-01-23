@@ -26,5 +26,75 @@
     "description": "Kill port then start Java",
     "relative_path": "playbooks/template_tpl_kill_port_start_java_fb49b7.yml",
     "updated_at": "2026-01-21T15:54:09.305776"
+  },
+  {
+    "id": "ce54f3f9-5178-4c78-9581-441cdc299f0e",
+    "name": "Upload File Keep Name",
+    "description": "Upload file to target directory",
+    "relative_path": "playbooks/template_tpl_upload_file_keep_ce54f3.yml",
+    "updated_at": "2026-01-23T17:24:01.123454"
+  },
+  {
+    "id": "4951af9f-96c2-47ba-8b8c-62c6ff6a6858",
+    "name": "Upload File Rename",
+    "description": "Upload file and rename",
+    "relative_path": "playbooks/template_tpl_upload_file_rename_4951af.yml",
+    "updated_at": "2026-01-23T17:24:02.279750"
+  },
+  {
+    "id": "6e6fd9d6-4114-4b3b-8709-415cab6cfad7",
+    "name": "Rename File",
+    "description": "Rename file with mv",
+    "relative_path": "playbooks/template_tpl_rename_file_6e6fd9.yml",
+    "updated_at": "2026-01-23T17:24:03.719877"
+  },
+  {
+    "id": "7e8274f9-b810-4cb0-9837-672fb46046d5",
+    "name": "Kill Port",
+    "description": "Kill process by port",
+    "relative_path": "playbooks/template_tpl_kill_port_7e8274.yml",
+    "updated_at": "2026-01-23T17:24:05.127956"
+  },
+  {
+    "id": "1550e879-019c-4f35-bcf9-7ca9171e1cea",
+    "name": "Start Program",
+    "description": "Start program with command",
+    "relative_path": "playbooks/template_tpl_start_program_1550e8.yml",
+    "updated_at": "2026-01-23T17:24:06.419791"
+  },
+  {
+    "id": "2be876b9-20d8-4e6e-a5c0-f6ffa190142b",
+    "name": "Kill Port + Start Java",
+    "description": "Kill port then start Java",
+    "relative_path": "playbooks/template_tpl_kill_port_start_java_2be876.yml",
+    "updated_at": "2026-01-23T17:24:08.007557"
+  },
+  {
+    "id": "bcb2781b-0ba1-4e3b-a151-cac94e7ee8bc",
+    "name": "Copy & Extract",
+    "description": "Upload archive and extract to target directory",
+    "relative_path": "playbooks/template_tpl_copy_extract_bcb278.yml",
+    "updated_at": "2026-01-23T17:24:09.419668"
+  },
+  {
+    "id": "14285dec-d388-4518-8e73-ec8eb3d2eff1",
+    "name": "Systemd Service",
+    "description": "Manage systemd service state",
+    "relative_path": "playbooks/template_tpl_systemd_service_14285d.yml",
+    "updated_at": "2026-01-23T17:24:11.048010"
+  },
+  {
+    "id": "280f7b14-6119-44b9-a8a2-b77f32fb9bc6",
+    "name": "Java Jar Deploy",
+    "description": "Deploy jar and restart service",
+    "relative_path": "playbooks/template_tpl_java_jar_deploy_280f7b.yml",
+    "updated_at": "2026-01-23T17:24:12.535594"
+  },
+  {
+    "id": "59748124-d1db-4c4d-91db-8d2fed3373b6",
+    "name": "Upload File Rename",
+    "description": "Upload file and rename",
+    "relative_path": "playbooks/template_tpl_upload_file_rename_597481.yml",
+    "updated_at": "2026-01-23T17:27:36.128372"
   }
 ]

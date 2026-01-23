@@ -1558,7 +1558,8 @@ class _TaskOutputDialogState extends State<_TaskOutputDialog> {
               controller: _path,
               decoration: const m.InputDecoration(
                 labelText: '产物绝对路径',
-                hintText: r'例如：/abs/path/app.jar 或 C:\path\app.jar',
+                hintText:
+                    r'例如：/abs/path/app.jar、${output_path} 或 C:\path\app.jar',
               ),
             ),
           ],
@@ -1585,14 +1586,17 @@ class _TaskOutputDialogState extends State<_TaskOutputDialog> {
               );
               return;
             }
-            if (!p.isAbsolute(path)) {
+            final hasTemplate = RegExp(
+              r'\\$\\{[A-Za-z_][A-Za-z0-9_]*\\}',
+            ).hasMatch(path);
+            if (!p.isAbsolute(path) && !hasTemplate) {
               await showAppErrorDialog(
                 context,
                 const AppException(
                   code: AppErrorCode.validation,
                   title: '产物路径不合法',
-                  message: '产物路径必须为绝对路径。',
-                  suggestion: '请填写绝对路径（如 /abs/path/file.jar）。',
+                  message: '产物路径必须为绝对路径或可解析的变量模板。',
+                  suggestion: r'请填写绝对路径，或使用形如 ${output_path} 的变量模板。',
                 ),
               );
               return;

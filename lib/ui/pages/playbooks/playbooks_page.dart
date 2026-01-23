@@ -6,6 +6,9 @@ import 'package:shadcn_flutter/shadcn_flutter.dart';
 import 'package:yaml/yaml.dart';
 
 import '../../../model/playbook_meta.dart';
+import '../../../model/task_template.dart';
+import '../../../services/app_services.dart';
+import '../../../services/templates/task_template_store.dart';
 import '../../../services/core/app_error.dart';
 import '../../controllers/playbooks_controller.dart';
 import '../../widgets/app_error_dialog.dart';
@@ -21,25 +24,290 @@ class PlaybooksPage extends StatelessWidget {
     final controller = Get.put(PlaybooksController());
 
     return ProjectGuard(
-      child: Scaffold(
-        child: Row(
-          children: [
-            // Sidebar
-            SizedBox(width: 320.w, child: const _PlaybookSidebar()),
-            const VerticalDivider(width: 1),
-            // Main Content
-            Expanded(
-              child: Obx(() {
-                final meta = controller.selected;
-                if (meta == null) {
-                  return const Center(child: Text('选择一个 Playbook 查看详情'));
-                }
-                return _PlaybookDetail(key: ValueKey(meta.id), meta: meta);
-              }),
-            ),
-          ],
+      child: m.DefaultTabController(
+        length: 2,
+        child: Scaffold(
+          child: Column(
+            children: [
+              Container(
+                height: 44.h,
+                padding: EdgeInsets.symmetric(horizontal: 12.w),
+                alignment: Alignment.centerLeft,
+                child: const m.TabBar(
+                  tabs: [
+                    m.Tab(text: 'Playbook'),
+                    m.Tab(text: '模板'),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              Expanded(
+                child: m.TabBarView(
+                  children: [
+                    Row(
+                      children: [
+                        // Sidebar
+                        SizedBox(width: 320.w, child: const _PlaybookSidebar()),
+                        const VerticalDivider(width: 1),
+                        // Main Content
+                        Expanded(
+                          child: Obx(() {
+                            final meta = controller.selected;
+                            if (meta == null) {
+                              return const Center(
+                                child: Text('选择一个 Playbook 查看详情'),
+                              );
+                            }
+                            return _PlaybookDetail(
+                              key: ValueKey(meta.id),
+                              meta: meta,
+                            );
+                          }),
+                        ),
+                      ],
+                    ),
+                    const _PlaybookTemplatesView(),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
+    );
+  }
+}
+
+class _PlaybookTemplatesView extends StatefulWidget {
+  const _PlaybookTemplatesView();
+
+  @override
+  State<_PlaybookTemplatesView> createState() => _PlaybookTemplatesViewState();
+}
+
+class _PlaybookTemplatesViewState extends State<_PlaybookTemplatesView> {
+  final List<TaskTemplate> _templates = <TaskTemplate>[];
+  TaskTemplate? _selected;
+  bool _loading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final store = TaskTemplateStore();
+      final list = await store.list();
+      final filtered = list.where((t) => t.isAnsiblePlaybook).toList();
+      setState(() {
+        _templates
+          ..clear()
+          ..addAll(filtered);
+        _selected = filtered.isEmpty ? null : filtered.first;
+        _loading = false;
+        _error = null;
+      });
+    } on AppException catch (e) {
+      setState(() {
+        _loading = false;
+        _error = e.message;
+      });
+    } on Object catch (e) {
+      setState(() {
+        _loading = false;
+        _error = e.toString();
+      });
+    }
+  }
+
+  Future<void> _importTemplate(TaskTemplate template) async {
+    final controller = Get.find<PlaybooksController>();
+    final pid = controller.projectId;
+    if (pid == null) return;
+    try {
+      final store = TaskTemplateStore();
+      final text = await store.readPlaybookText(template);
+      final newId = AppServices.I.uuid.v4();
+      final now = DateTime.now();
+      final ext = (template.playbookPath ?? '').toLowerCase().endsWith('.yaml')
+          ? '.yaml'
+          : '.yml';
+      final relativePath =
+          'playbooks/template_${template.id}_${newId.substring(0, 6)}$ext';
+      final meta = PlaybookMeta(
+        id: newId,
+        name: template.playbookName ?? template.name,
+        description: template.playbookDescription ?? template.description,
+        relativePath: relativePath,
+        updatedAt: now,
+      );
+      final pbStore = AppServices.I.playbooksStore(pid);
+      await pbStore.writePlaybookText(meta, text);
+      await pbStore.upsertMeta(meta);
+      await controller.load();
+      controller.selectedId.value = newId;
+      if (!mounted) return;
+      showToast(
+        context: context,
+        builder: (context, overlay) => Card(
+          child: Padding(
+            padding: EdgeInsets.all(12.r),
+            child: const Text('模板已导入为 Playbook'),
+          ),
+        ),
+      );
+    } on AppException catch (e) {
+      if (mounted) {
+        await showAppErrorDialog(context, e);
+      }
+    } on Object catch (e) {
+      if (mounted) {
+        await showAppErrorDialog(
+          context,
+          AppException(
+            code: AppErrorCode.unknown,
+            title: '导入失败',
+            message: e.toString(),
+            suggestion: '请检查模板资源后重试。',
+            cause: e,
+          ),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Center(child: m.CircularProgressIndicator());
+    }
+    if (_error != null) {
+      return Center(child: Text('加载模板失败：$_error'));
+    }
+    if (_templates.isEmpty) {
+      return const Center(child: Text('暂无可用 Playbook 模板'));
+    }
+
+    return Row(
+      children: [
+        SizedBox(
+          width: 320.w,
+          child: Column(
+            children: [
+              Container(
+                height: 50.h,
+                padding: EdgeInsets.symmetric(horizontal: 12.w),
+                decoration: BoxDecoration(
+                  border: Border(
+                    bottom: BorderSide(color: m.Theme.of(context).dividerColor),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '模板',
+                        style: m.Theme.of(context).textTheme.titleMedium,
+                      ),
+                    ),
+                    GhostButton(
+                      density: ButtonDensity.icon,
+                      onPressed: _load,
+                      child: const Icon(Icons.refresh, size: 18),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: m.ListView.separated(
+                  itemCount: _templates.length,
+                  separatorBuilder: (context, index) =>
+                      const Divider(height: 1),
+                  itemBuilder: (context, i) {
+                    final t = _templates[i];
+                    final selected = _selected?.id == t.id;
+                    return m.Material(
+                      color: selected
+                          ? m.Theme.of(
+                              context,
+                            ).colorScheme.primary.withValues(alpha: 0.05)
+                          : Colors.transparent,
+                      child: m.InkWell(
+                        onTap: () => setState(() => _selected = t),
+                        child: Padding(
+                          padding: EdgeInsets.symmetric(vertical: 6.h),
+                          child: Row(
+                            children: [
+                              SizedBox(width: 12.w),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      t.name,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    if (t.description.trim().isNotEmpty)
+                                      Text(
+                                        t.description,
+                                        overflow: TextOverflow.ellipsis,
+                                      ).muted(),
+                                  ],
+                                ),
+                              ),
+                              SizedBox(width: 12.w),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+        const VerticalDivider(width: 1),
+        Expanded(
+          child: _selected == null
+              ? const Center(child: Text('选择一个模板查看详情'))
+              : Padding(
+                  padding: EdgeInsets.all(16.r),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _selected!.name,
+                        style: m.Theme.of(context).textTheme.titleLarge,
+                      ),
+                      if (_selected!.description.trim().isNotEmpty) ...[
+                        SizedBox(height: 6.h),
+                        Text(_selected!.description).muted(),
+                      ],
+                      SizedBox(height: 12.h),
+                      Row(
+                        children: [
+                          PrimaryButton(
+                            onPressed: () => _importTemplate(_selected!),
+                            child: const Text('导入为 Playbook'),
+                          ),
+                        ],
+                      ),
+                      SizedBox(height: 16.h),
+                      Text('文件槽位：${_selected!.fileSlots.length} 个').muted(),
+                      Text('变量：${_selected!.variables.length} 个').muted(),
+                      if (_selected!.playbookPath != null) ...[
+                        SizedBox(height: 8.h),
+                        Text('模板文件：${_selected!.playbookPath}').muted(),
+                      ],
+                    ],
+                  ),
+                ),
+        ),
+      ],
     );
   }
 }

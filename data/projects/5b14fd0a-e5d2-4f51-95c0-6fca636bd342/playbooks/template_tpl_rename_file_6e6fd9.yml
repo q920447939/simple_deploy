@@ -1,0 +1,12 @@
+- name: Rename file
+  hosts: all
+  gather_facts: false
+  become: yes
+  vars:
+    src_path: "/opt/app/old.bin"
+    dest_path: "/opt/app/new.bin"
+    ansible_python_interpreter: "{{ python | default('/usr/bin/python3') }}"
+
+  tasks:
+    - name: Rename file
+      ansible.builtin.command: mv -f "{{ src_path }}" "{{ dest_path }}"

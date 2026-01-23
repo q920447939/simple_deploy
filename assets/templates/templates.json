@@ -36,7 +36,7 @@
       }
     ],
     "outputs": [
-      {"name": "artifact", "path": "/tmp/simple_deploy_artifacts/app.jar"}
+      {"name": "artifact", "path": "${output_path}"}
     ]
   },
   {
@@ -70,10 +70,7 @@
       }
     ],
     "outputs": [
-      {
-        "name": "artifact",
-        "path": "/tmp/simple_deploy_artifacts/web_build.tar.gz"
-      }
+      {"name": "artifact", "path": "${output_path}"}
     ]
   },
   {

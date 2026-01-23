@@ -6,6 +6,8 @@ import 'dart:typed_data';
 import 'package:get/get.dart';
 
 import '../../model/batch.dart';
+import '../../model/batch_input_snapshot.dart';
+import '../../model/file_binding.dart';
 import '../../model/run.dart';
 import '../../model/run_inputs.dart';
 import '../../model/server.dart';
@@ -36,6 +38,7 @@ class BatchesController extends GetxController {
   final RxBool userPinnedTask = false.obs;
 
   final RxMap<String, Run> lastRunByBatchId = <String, Run>{}.obs;
+  final RxList<BatchInputSnapshot> snapshots = <BatchInputSnapshot>[].obs;
 
   final RxList<String> currentLogLines = <String>[].obs;
   final RxInt logMaxLines = 2000.obs;
@@ -93,6 +96,7 @@ class BatchesController extends GetxController {
     super.onInit();
     ever<String?>(projects.selectedId, (_) => loadAll());
     ever<String?>(selectedBatchId, (_) => loadRuns());
+    ever<String?>(selectedBatchId, (_) => loadSnapshots());
     ever<String?>(selectedRunId, (_) {
       _resetLogView();
       // ignore: unawaited_futures
@@ -122,6 +126,7 @@ class BatchesController extends GetxController {
       servers.clear();
       tasks.clear();
       runs.clear();
+      snapshots.clear();
       selectedBatchId.value = null;
       selectedRunId.value = null;
       bulkSelectedRunIds.clear();
@@ -149,6 +154,116 @@ class BatchesController extends GetxController {
     }
 
     await _loadLastRuns(pid, list);
+  }
+
+  Future<void> loadSnapshots() async {
+    final pid = projectId;
+    final batch = selectedBatch;
+    if (pid == null || batch == null) {
+      snapshots.clear();
+      return;
+    }
+    final file = AppServices.I.projectPaths(pid).batchSnapshotsFile(batch.id);
+    final raw = await AtomicFile.readJsonOrNull(file);
+    if (raw == null) {
+      snapshots.clear();
+      return;
+    }
+    if (raw is! List) {
+      _logger.error(
+        'snapshots.invalid',
+        data: {'batch_id': batch.id, 'reason': 'not_list'},
+      );
+      snapshots.clear();
+      return;
+    }
+    final list = raw
+        .whereType<Map>()
+        .map((m) => BatchInputSnapshot.fromJson(m.cast<String, Object?>()))
+        .toList();
+    list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    snapshots.assignAll(list);
+  }
+
+  RunInputs buildInputsFromBatch(Batch batch) {
+    final files = <String, Map<String, List<FileBinding>>>{};
+    final vars = <String, Map<String, String>>{};
+    for (final item in batch.taskItems) {
+      if (item.inputs.fileInputs.isNotEmpty) {
+        files[item.id] = item.inputs.fileInputs;
+      }
+      if (item.inputs.vars.isNotEmpty) {
+        vars[item.id] = item.inputs.vars;
+      }
+    }
+    return RunInputs(fileInputs: files, vars: vars);
+  }
+
+  Future<void> saveSnapshot({
+    required Batch batch,
+    required String name,
+    required RunInputs inputs,
+  }) async {
+    final pid = projectId;
+    if (pid == null) return;
+    final now = DateTime.now();
+    final next = BatchInputSnapshot(
+      id: AppServices.I.uuid.v4(),
+      name: name.trim().isEmpty ? '快照 ${now.toIso8601String()}' : name.trim(),
+      createdAt: now,
+      inputs: inputs,
+    );
+    final file = AppServices.I.projectPaths(pid).batchSnapshotsFile(batch.id);
+    final raw = await AtomicFile.readJsonOrNull(file);
+    final list = <BatchInputSnapshot>[];
+    if (raw is List) {
+      for (final item in raw.whereType<Map>()) {
+        list.add(BatchInputSnapshot.fromJson(item.cast<String, Object?>()));
+      }
+    }
+    list.insert(0, next);
+    await AtomicFile.writeJson(file, list.map((s) => s.toJson()).toList());
+    await loadSnapshots();
+  }
+
+  Future<void> renameSnapshot({
+    required Batch batch,
+    required BatchInputSnapshot snapshot,
+    required String name,
+  }) async {
+    final pid = projectId;
+    if (pid == null) return;
+    final file = AppServices.I.projectPaths(pid).batchSnapshotsFile(batch.id);
+    final raw = await AtomicFile.readJsonOrNull(file);
+    if (raw is! List) return;
+    final list = raw
+        .whereType<Map>()
+        .map((m) => BatchInputSnapshot.fromJson(m.cast<String, Object?>()))
+        .toList();
+    final idx = list.indexWhere((s) => s.id == snapshot.id);
+    if (idx >= 0) {
+      list[idx] = list[idx].copyWith(name: name.trim());
+      await AtomicFile.writeJson(file, list.map((s) => s.toJson()).toList());
+      await loadSnapshots();
+    }
+  }
+
+  Future<void> deleteSnapshot({
+    required Batch batch,
+    required BatchInputSnapshot snapshot,
+  }) async {
+    final pid = projectId;
+    if (pid == null) return;
+    final file = AppServices.I.projectPaths(pid).batchSnapshotsFile(batch.id);
+    final raw = await AtomicFile.readJsonOrNull(file);
+    if (raw is! List) return;
+    final list = raw
+        .whereType<Map>()
+        .map((m) => BatchInputSnapshot.fromJson(m.cast<String, Object?>()))
+        .where((s) => s.id != snapshot.id)
+        .toList();
+    await AtomicFile.writeJson(file, list.map((s) => s.toJson()).toList());
+    await loadSnapshots();
   }
 
   List<Batch> get visibleBatches {

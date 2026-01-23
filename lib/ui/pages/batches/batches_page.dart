@@ -696,6 +696,18 @@ class _BatchSidebarState extends State<_BatchSidebar> {
       }
     }
 
+    Future<void> onSnapshots() async {
+      if (!context.mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (context) => _BatchSnapshotsDialog(
+          batch: widget.batch,
+          entries: widget.entries,
+          control: widget.control,
+        ),
+      );
+    }
+
     final paused = widget.batch.status == BatchStatus.paused;
     final running = widget.batch.status == BatchStatus.running;
     final ended = widget.batch.status == BatchStatus.ended;
@@ -746,6 +758,11 @@ class _BatchSidebarState extends State<_BatchSidebar> {
                 OutlineButton(
                   onPressed: onExecuteReuseLast,
                   child: const Text('沿用上次参数运行'),
+                ),
+                SizedBox(height: 8.h),
+                OutlineButton(
+                  onPressed: onSnapshots,
+                  child: const Text('参数快照'),
                 ),
               ] else if (running) ...[
                 const PrimaryButton(
@@ -2009,11 +2026,13 @@ class _BatchInputsDialog extends StatefulWidget {
   final List<_BatchTaskEntry> entries;
   final String actionLabel;
   final bool enforceRequired;
+  final RunInputs? initialInputs;
 
   const _BatchInputsDialog({
     required this.entries,
     this.actionLabel = '开始执行',
     this.enforceRequired = true,
+    this.initialInputs,
   });
 
   @override
@@ -2023,28 +2042,36 @@ class _BatchInputsDialog extends StatefulWidget {
 class _BatchInputsDialogState extends State<_BatchInputsDialog> {
   final Map<String, Map<String, List<FileBinding>>> _fileInputs = {};
   final Map<String, Map<String, m.TextEditingController>> _varCtrls = {};
+  int _selectedIndex = 0;
 
   @override
   void initState() {
     super.initState();
     for (final entry in widget.entries) {
       final t = entry.task;
+      final initialVars =
+          widget.initialInputs?.vars[entry.item.id] ??
+          widget.initialInputs?.vars[entry.task.id];
+      final initialFiles =
+          widget.initialInputs?.fileInputs[entry.item.id] ??
+          widget.initialInputs?.fileInputs[entry.task.id];
       if (t.variables.isNotEmpty) {
         final byVar = _varCtrls.putIfAbsent(
           entry.item.id,
           () => <String, m.TextEditingController>{},
         );
         for (final v in t.variables) {
-          final preset = entry.item.inputs.vars[v.name];
+          final preset = initialVars?[v.name] ?? entry.item.inputs.vars[v.name];
           byVar.putIfAbsent(
             v.name,
             () => m.TextEditingController(text: preset ?? v.defaultValue),
           );
         }
       }
-      if (entry.item.inputs.fileInputs.isNotEmpty) {
+      final seedFiles = initialFiles ?? entry.item.inputs.fileInputs;
+      if (seedFiles.isNotEmpty) {
         final bySlot = <String, List<FileBinding>>{};
-        for (final e in entry.item.inputs.fileInputs.entries) {
+        for (final e in seedFiles.entries) {
           bySlot[e.key] = e.value
               .map((b) => b.copyWith(path: b.path.trim()))
               .toList();
@@ -2090,6 +2117,20 @@ class _BatchInputsDialogState extends State<_BatchInputsDialog> {
       }
     }
     return true;
+  }
+
+  bool _missingRequiredForEntry(_BatchTaskEntry entry) {
+    final t = entry.task;
+    for (final s in t.fileSlots.where((x) => x.required)) {
+      final list = _fileInputs[entry.item.id]?[s.name] ?? const <FileBinding>[];
+      if (list.isEmpty) return true;
+    }
+    for (final v in t.variables.where((x) => x.required)) {
+      final c = _varCtrls[entry.item.id]?[v.name];
+      final text = c?.text ?? '';
+      if (text.trim().isEmpty) return true;
+    }
+    return false;
   }
 
   RunInputs _normalized() {
@@ -2335,57 +2376,132 @@ class _BatchInputsDialogState extends State<_BatchInputsDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final entries = widget.entries;
+    final selected = entries.isEmpty ? null : entries[_selectedIndex];
+
     return AlertDialog(
       title: const Text('选择运行输入'),
       content: SizedBox(
-        width: 960.w,
+        width: 980.w,
         height: 560.h,
-        child: m.ListView(
+        child: Row(
           children: [
-            const Text('说明：必选变量/必选槽位未填写/未选择文件将无法开始执行。').muted(),
-            SizedBox(height: 12.h),
-            for (var ti = 0; ti < widget.entries.length; ti++) ...[
-              if (ti > 0) const Divider(),
-              Text(widget.entries[ti].displayName).p(),
-              SizedBox(height: 6.h),
-              if (widget.entries[ti].task.variables.isNotEmpty) ...[
-                for (final v in widget.entries[ti].task.variables) ...[
-                  m.TextField(
-                    controller: _varCtrls[widget.entries[ti].item.id]?[v.name],
-                    decoration: m.InputDecoration(
-                      labelText: v.required ? '${v.name}（必填）' : v.name,
-                      helperText: v.description.trim().isEmpty
-                          ? null
-                          : v.description.trim(),
+            SizedBox(
+              width: 240.w,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('任务列表').p(),
+                  SizedBox(height: 6.h),
+                  Expanded(
+                    child: m.ListView.separated(
+                      itemCount: entries.length,
+                      separatorBuilder: (context, index) =>
+                          const Divider(height: 1),
+                      itemBuilder: (context, i) {
+                        final entry = entries[i];
+                        final missing = _missingRequiredForEntry(entry);
+                        final selectedItem = _selectedIndex == i;
+                        return m.Material(
+                          color: selectedItem
+                              ? m.Theme.of(
+                                  context,
+                                ).colorScheme.primary.withValues(alpha: 0.06)
+                              : Colors.transparent,
+                          child: m.InkWell(
+                            onTap: () => setState(() => _selectedIndex = i),
+                            child: Padding(
+                              padding: EdgeInsets.symmetric(
+                                vertical: 6.h,
+                                horizontal: 8.w,
+                              ),
+                              child: Row(
+                                children: [
+                                  Text('${i + 1}.').muted(),
+                                  SizedBox(width: 6.w),
+                                  Expanded(
+                                    child: Text(
+                                      entry.displayName,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  if (missing)
+                                    const Icon(
+                                      Icons.error_outline,
+                                      size: 16,
+                                      color: Colors.orange,
+                                    )
+                                  else
+                                    const Icon(
+                                      Icons.check_circle_outline,
+                                      size: 16,
+                                      color: Colors.green,
+                                    ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        );
+                      },
                     ),
                   ),
-                  SizedBox(height: 8.h),
                 ],
-                SizedBox(height: 6.h),
-              ],
-              if (widget.entries[ti].task.fileSlots.isEmpty)
-                Padding(
-                  padding: EdgeInsets.only(bottom: 8.h),
-                  child: Text('该任务没有文件槽位。').muted(),
-                ),
-              for (final slot in widget.entries[ti].task.fileSlots) ...[
-                _SlotRow(
-                  slot: slot,
-                  selectedBindings:
-                      _fileInputs[widget.entries[ti].item.id]?[slot.name] ??
-                      const [],
-                  onPick: () => _pickFiles(widget.entries[ti], slot),
-                  onAddLocal: () => _addLocalPath(widget.entries[ti], slot),
-                  onAddControl: () => _addControlPath(widget.entries[ti], slot),
-                  onAddOutput: () =>
-                      _addScriptOutput(widget.entries[ti], slot, ti),
-                  onClear: () => _clear(widget.entries[ti], slot),
-                  onRemove: (binding) =>
-                      _remove(widget.entries[ti], slot, binding),
-                ),
-                SizedBox(height: 10.h),
-              ],
-            ],
+              ),
+            ),
+            const VerticalDivider(width: 1),
+            Expanded(
+              child: selected == null
+                  ? const Center(child: Text('暂无任务'))
+                  : m.ListView(
+                      children: [
+                        Text(selected.displayName).p(),
+                        SizedBox(height: 6.h),
+                        if (selected.task.variables.isNotEmpty) ...[
+                          for (final v in selected.task.variables) ...[
+                            m.TextField(
+                              controller: _varCtrls[selected.item.id]?[v.name],
+                              decoration: m.InputDecoration(
+                                labelText: v.required
+                                    ? '${v.name}（必填）'
+                                    : v.name,
+                                helperText: v.description.trim().isEmpty
+                                    ? null
+                                    : v.description.trim(),
+                              ),
+                              onChanged: (_) => setState(() {}),
+                            ),
+                            SizedBox(height: 8.h),
+                          ],
+                          SizedBox(height: 6.h),
+                        ],
+                        if (selected.task.fileSlots.isEmpty)
+                          Padding(
+                            padding: EdgeInsets.only(bottom: 8.h),
+                            child: Text('该任务没有文件槽位。').muted(),
+                          ),
+                        for (final slot in selected.task.fileSlots) ...[
+                          _SlotRow(
+                            slot: slot,
+                            selectedBindings:
+                                _fileInputs[selected.item.id]?[slot.name] ??
+                                const [],
+                            onPick: () => _pickFiles(selected, slot),
+                            onAddLocal: () => _addLocalPath(selected, slot),
+                            onAddControl: () => _addControlPath(selected, slot),
+                            onAddOutput: () => _addScriptOutput(
+                              selected,
+                              slot,
+                              selected.index,
+                            ),
+                            onClear: () => _clear(selected, slot),
+                            onRemove: (binding) =>
+                                _remove(selected, slot, binding),
+                          ),
+                          SizedBox(height: 10.h),
+                        ],
+                      ],
+                    ),
+            ),
           ],
         ),
       ),
@@ -2399,6 +2515,282 @@ class _BatchInputsDialogState extends State<_BatchInputsDialog> {
               ? () => Navigator.of(context).pop(_normalized())
               : null,
           child: Text(widget.actionLabel),
+        ),
+      ],
+    );
+  }
+}
+
+class _BatchSnapshotsDialog extends StatefulWidget {
+  final Batch batch;
+  final List<_BatchTaskEntry> entries;
+  final Server? control;
+
+  const _BatchSnapshotsDialog({
+    required this.batch,
+    required this.entries,
+    required this.control,
+  });
+
+  @override
+  State<_BatchSnapshotsDialog> createState() => _BatchSnapshotsDialogState();
+}
+
+class _BatchSnapshotsDialogState extends State<_BatchSnapshotsDialog> {
+  @override
+  void initState() {
+    super.initState();
+    final controller = Get.find<BatchesController>();
+    // ignore: unawaited_futures
+    controller.loadSnapshots();
+  }
+
+  Future<String?> _promptSnapshotName({
+    required String title,
+    String? initial,
+  }) async {
+    final ctrl = m.TextEditingController(text: initial ?? '');
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: m.TextField(
+          controller: ctrl,
+          decoration: const m.InputDecoration(hintText: '请输入快照名称'),
+          autofocus: true,
+        ),
+        actions: [
+          OutlineButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('取消'),
+          ),
+          PrimaryButton(
+            onPressed: () => Navigator.of(context).pop(ctrl.text.trim()),
+            child: const Text('确定'),
+          ),
+        ],
+      ),
+    );
+    ctrl.dispose();
+    return result;
+  }
+
+  Future<void> _startRunWithInputs(RunInputs inputs) async {
+    final controller = Get.find<BatchesController>();
+    try {
+      await controller.startRunWithInputs(inputs);
+      if (mounted) Navigator.of(context).pop();
+    } on AppException catch (e) {
+      if (e.code == AppErrorCode.validation &&
+          e.message.contains('检测到控制端环境不支持')) {
+        if (!mounted) return;
+        final allow = await _maybeConfirmUnsupportedControlAutoInstall(
+          context,
+          widget.control!,
+        );
+        if (allow == true) {
+          await controller.startRunWithInputs(
+            inputs,
+            allowUnsupportedControlOsAutoInstall: true,
+          );
+          if (mounted) Navigator.of(context).pop();
+        }
+      } else if (mounted) {
+        await showAppErrorDialog(context, e);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = Get.find<BatchesController>();
+    final now = DateTime.now();
+
+    return AlertDialog(
+      title: const Text('参数快照'),
+      content: SizedBox(
+        width: 760.w,
+        height: 420.h,
+        child: Obx(() {
+          final snaps = controller.snapshots;
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  GhostButton(
+                    onPressed: () async {
+                      final name = await _promptSnapshotName(
+                        title: '基于当前配置创建快照',
+                        initial: '当前配置 ${formatDateTime(now)}',
+                      );
+                      if (name == null || name.trim().isEmpty) return;
+                      final inputs = controller.buildInputsFromBatch(
+                        widget.batch,
+                      );
+                      await controller.saveSnapshot(
+                        batch: widget.batch,
+                        name: name,
+                        inputs: inputs,
+                      );
+                    },
+                    child: const Text('基于当前配置创建'),
+                  ),
+                  SizedBox(width: 8.w),
+                  GhostButton(
+                    onPressed: () async {
+                      final last = await controller.readLastInputs(
+                        widget.batch.id,
+                      );
+                      if (last == null) {
+                        if (!mounted) return;
+                        await showDialog<void>(
+                          context: context,
+                          builder: (context) => const AlertDialog(
+                            title: Text('无上次输入'),
+                            content: Text('未找到上次执行的输入记录。'),
+                          ),
+                        );
+                        return;
+                      }
+                      final name = await _promptSnapshotName(
+                        title: '基于上次运行创建快照',
+                        initial: '上次运行 ${formatDateTime(now)}',
+                      );
+                      if (name == null || name.trim().isEmpty) return;
+                      await controller.saveSnapshot(
+                        batch: widget.batch,
+                        name: name,
+                        inputs: last,
+                      );
+                    },
+                    child: const Text('基于上次运行创建'),
+                  ),
+                  const Spacer(),
+                  GhostButton(
+                    density: ButtonDensity.icon,
+                    onPressed: controller.loadSnapshots,
+                    child: const Icon(Icons.refresh, size: 18),
+                  ),
+                ],
+              ),
+              SizedBox(height: 12.h),
+              Expanded(
+                child: snaps.isEmpty
+                    ? const Center(child: Text('暂无快照'))
+                    : m.ListView.separated(
+                        itemCount: snaps.length,
+                        separatorBuilder: (context, index) =>
+                            const Divider(height: 1),
+                        itemBuilder: (context, i) {
+                          final s = snaps[i];
+                          return m.ListTile(
+                            title: Text(s.name),
+                            subtitle: Text(formatDateTime(s.createdAt)).muted(),
+                            trailing: Wrap(
+                              spacing: 6.w,
+                              children: [
+                                GhostButton(
+                                  onPressed: () async {
+                                    final inputs = await showDialog<RunInputs>(
+                                      context: context,
+                                      builder: (context) => _BatchInputsDialog(
+                                        entries: widget.entries,
+                                        initialInputs: s.inputs,
+                                      ),
+                                    );
+                                    if (inputs == null) return;
+                                    if (!mounted) return;
+                                    await _startRunWithInputs(inputs);
+                                  },
+                                  child: const Text('运行'),
+                                ),
+                                GhostButton(
+                                  onPressed: () async {
+                                    try {
+                                      await controller.updateBatchTaskInputs(
+                                        widget.batch,
+                                        s.inputs,
+                                      );
+                                      if (!mounted) return;
+                                      showToast(
+                                        context: context,
+                                        builder: (context, overlay) => Card(
+                                          child: Padding(
+                                            padding: EdgeInsets.all(12.r),
+                                            child: const Text('快照已应用到批次'),
+                                          ),
+                                        ),
+                                      );
+                                    } on AppException catch (e) {
+                                      if (mounted) {
+                                        await showAppErrorDialog(context, e);
+                                      }
+                                    }
+                                  },
+                                  child: const Text('应用'),
+                                ),
+                                GhostButton(
+                                  onPressed: () async {
+                                    final name = await _promptSnapshotName(
+                                      title: '重命名快照',
+                                      initial: s.name,
+                                    );
+                                    if (name == null || name.trim().isEmpty) {
+                                      return;
+                                    }
+                                    await controller.renameSnapshot(
+                                      batch: widget.batch,
+                                      snapshot: s,
+                                      name: name,
+                                    );
+                                  },
+                                  child: const Text('重命名'),
+                                ),
+                                DestructiveButton(
+                                  onPressed: () async {
+                                    final ok = await showDialog<bool>(
+                                      context: context,
+                                      builder: (context) => AlertDialog(
+                                        title: const Text('删除快照？'),
+                                        content: Text('确认删除 “${s.name}”？'),
+                                        actions: [
+                                          OutlineButton(
+                                            onPressed: () => Navigator.of(
+                                              context,
+                                            ).pop(false),
+                                            child: const Text('取消'),
+                                          ),
+                                          DestructiveButton(
+                                            onPressed: () =>
+                                                Navigator.of(context).pop(true),
+                                            child: const Text('删除'),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                    if (ok != true) return;
+                                    await controller.deleteSnapshot(
+                                      batch: widget.batch,
+                                      snapshot: s,
+                                    );
+                                  },
+                                  child: const Text('删除'),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+              ),
+            ],
+          );
+        }),
+      ),
+      actions: [
+        OutlineButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('关闭'),
         ),
       ],
     );

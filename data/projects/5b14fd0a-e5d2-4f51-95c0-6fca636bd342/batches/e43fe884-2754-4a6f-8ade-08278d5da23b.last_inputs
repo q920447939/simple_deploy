@@ -27,7 +27,7 @@
       "port": "18080",
       "java_cmd": "java -jar /home/firework/firework_admin_back/firework_admin_back.jar",
       "work_dir": "/home/firework/firework_admin_back",
-      "log_path": "/home/firework/firework_admin_back/app.log",
+      "log_path": "/home/firework/firework_admin_back",
       "signal": "9",
       "python": "/usr/bin/python3"
     }

@@ -22,6 +22,9 @@ class TasksController extends GetxController {
 
   static final RegExp _slotNameRe = RegExp(r'^[A-Za-z0-9_]+$');
   static final RegExp _varNameRe = RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$');
+  static final RegExp _varTemplateRe = RegExp(
+    r'\\$\\{[A-Za-z_][A-Za-z0-9_]*\\}',
+  );
   static const Set<String> _reservedVarNames = {
     // Reserved by run_engine vars json.
     'run_id',
@@ -180,12 +183,13 @@ class TasksController extends GetxController {
             suggestion: '修改产物名后重试。',
           );
         }
-        if (path.isEmpty || !p.isAbsolute(path)) {
+        final hasTemplate = _varTemplateRe.hasMatch(path);
+        if (path.isEmpty || (!p.isAbsolute(path) && !hasTemplate)) {
           throw const AppException(
             code: AppErrorCode.validation,
             title: '产物路径不合法',
-            message: '产物路径必须为绝对路径。',
-            suggestion: '请填写绝对路径（如 /abs/path/file.jar）。',
+            message: '产物路径必须为绝对路径或可解析的变量模板。',
+            suggestion: r'请填写绝对路径，或使用形如 ${output_path} 的变量模板。',
           );
         }
         normalizedOutputs.add(TaskOutput(name: name, path: path));

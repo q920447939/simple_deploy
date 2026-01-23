@@ -126,5 +126,47 @@
       }
     ],
     "outputs": []
+  },
+  {
+    "id": "303ef8a4-6316-48c7-abe7-eb5d1063f853",
+    "name": "上传文件到目录（指定文件名）",
+    "description": "将文件传输到指定目录并重命名",
+    "type": "ansible_playbook",
+    "playbook_id": "59748124-d1db-4c4d-91db-8d2fed3373b6",
+    "script": null,
+    "file_slots": [
+      {
+        "name": "file",
+        "required": true,
+        "multiple": false
+      }
+    ],
+    "variables": [
+      {
+        "name": "remote_dest_dir",
+        "description": "目标目录",
+        "default": "/opt/app",
+        "required": true
+      },
+      {
+        "name": "dest_name",
+        "description": "目标文件名",
+        "default": "app.bin",
+        "required": true
+      },
+      {
+        "name": "file_mode",
+        "description": "文件权限",
+        "default": "0644",
+        "required": false
+      },
+      {
+        "name": "python",
+        "description": "远程 python 路径",
+        "default": "/usr/bin/python3",
+        "required": false
+      }
+    ],
+    "outputs": []
   }
 ]
