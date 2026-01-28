@@ -77,6 +77,7 @@ class RunsStore {
     if (runIds.isEmpty) return;
     try {
       for (final id in runIds) {
+        final run = await getById(id);
         final file = paths.runFile(id);
         if (await file.exists()) {
           await file.delete();
@@ -88,6 +89,12 @@ class RunsStore {
         final artifactsDir = paths.runArtifactsFor(id);
         if (await artifactsDir.exists()) {
           await artifactsDir.delete(recursive: true);
+        }
+        if (run != null) {
+          final snapshotDir = paths.runSnapshotDirFor(run.batchId, run.seq);
+          if (await snapshotDir.exists()) {
+            await snapshotDir.delete(recursive: true);
+          }
         }
       }
     } on Object catch (e) {

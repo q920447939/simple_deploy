@@ -13,6 +13,7 @@ class TaskExecStatus {
   static const String running = 'running';
   static const String success = 'success';
   static const String failed = 'failed';
+  static const String blocked = 'blocked';
 }
 
 class BizStatusValue {
@@ -140,8 +141,11 @@ class Run {
   final String id;
   final String projectId;
   final String batchId;
+  final int seq;
   final DateTime startedAt;
   final DateTime? endedAt;
+  final String systemStatus; // waiting|running|success|failed
+  final String? systemError;
   final String status; // running|ended
   final String result; // success|failed
   final List<TaskRunResult> taskResults;
@@ -153,8 +157,11 @@ class Run {
     required this.id,
     required this.projectId,
     required this.batchId,
+    required this.seq,
     required this.startedAt,
     required this.endedAt,
+    required this.systemStatus,
+    required this.systemError,
     required this.status,
     required this.result,
     required this.taskResults,
@@ -164,7 +171,10 @@ class Run {
   });
 
   Run copyWith({
+    int? seq,
     DateTime? endedAt,
+    String? systemStatus,
+    String? systemError,
     String? status,
     String? result,
     List<TaskRunResult>? taskResults,
@@ -176,8 +186,11 @@ class Run {
       id: id,
       projectId: projectId,
       batchId: batchId,
+      seq: seq ?? this.seq,
       startedAt: startedAt,
       endedAt: endedAt ?? this.endedAt,
+      systemStatus: systemStatus ?? this.systemStatus,
+      systemError: systemError ?? this.systemError,
       status: status ?? this.status,
       result: result ?? this.result,
       taskResults: taskResults ?? this.taskResults,
@@ -194,10 +207,14 @@ class Run {
       id: json['id'] as String,
       projectId: json['project_id'] as String,
       batchId: json['batch_id'] as String,
+      seq: (json['seq'] as num?)?.toInt() ?? 0,
       startedAt: DateTime.parse(json['started_at'] as String),
       endedAt: json['ended_at'] == null
           ? null
           : DateTime.parse(json['ended_at'] as String),
+      systemStatus:
+          (json['system_status'] as String?) ?? TaskExecStatus.waiting,
+      systemError: json['system_error'] as String?,
       status: (json['status'] as String?) ?? RunStatus.running,
       result: (json['result'] as String?) ?? RunResult.failed,
       taskResults: trs
@@ -219,8 +236,11 @@ class Run {
       'id': id,
       'project_id': projectId,
       'batch_id': batchId,
+      'seq': seq,
       'started_at': startedAt.toIso8601String(),
       'ended_at': endedAt?.toIso8601String(),
+      'system_status': systemStatus,
+      'system_error': systemError,
       'status': status,
       'result': result,
       'task_results': taskResults.map((t) => t.toJson()).toList(),

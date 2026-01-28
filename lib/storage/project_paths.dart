@@ -27,6 +27,8 @@ class ProjectPaths {
   Directory get runArtifactsDir =>
       Directory(p.join(projectDir.path, 'run_artifacts'));
   Directory get runLogsDir => Directory(p.join(projectDir.path, 'run_logs'));
+  Directory get runSnapshotsDir =>
+      Directory(p.join(projectDir.path, 'run_snapshots'));
 
   Directory get locksDir => Directory(p.join(projectDir.path, 'locks'));
 
@@ -42,9 +44,15 @@ class ProjectPaths {
       Directory(p.join(runArtifactsDir.path, runId));
   Directory runLogsFor(String runId) =>
       Directory(p.join(runLogsDir.path, runId));
+  Directory runSnapshotDirFor(String batchId, int seq) =>
+      Directory(p.join(runSnapshotsDir.path, batchId, 'run_$seq'));
+  File runSnapshotFileFor(String batchId, int seq) =>
+      AtomicFile.childFile(runSnapshotDirFor(batchId, seq), 'snapshot.json');
 
   File taskLogFile(String runId, int taskIndex) =>
       AtomicFile.childFile(runLogsFor(runId), 'task_$taskIndex.log');
+  File systemLogFile(String runId) =>
+      AtomicFile.childFile(runLogsFor(runId), 'system.log');
   File runUploadProgressFile(String runId) =>
       AtomicFile.childFile(runLogsFor(runId), 'upload_progress.json');
 
@@ -58,6 +66,7 @@ class ProjectPaths {
     await runsDir.create(recursive: true);
     await runArtifactsDir.create(recursive: true);
     await runLogsDir.create(recursive: true);
+    await runSnapshotsDir.create(recursive: true);
     await locksDir.create(recursive: true);
   }
 }

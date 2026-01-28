@@ -2,13 +2,15 @@
   "id": "e43fe884-2754-4a6f-8ade-08278d5da23b",
   "name": "firework deploy",
   "description": "",
-  "status": "paused",
+  "status": "ended",
   "control_server_id": "adf11357-0ebb-403e-b0bd-3fd736336afe",
   "managed_server_ids": [
     "e8514cbc-e56b-476c-a31c-5fd02dd4e3e6"
   ],
   "task_order": [
-    "5edef429-0e7d-4195-8b01-34a41f0cba83"
+    "5edef429-0e7d-4195-8b01-34a41f0cba83",
+    "a498e80e-5f81-4d89-825a-f851404e60db",
+    "3a63facd-03fc-4e1d-8e7c-2f868615df8a"
   ],
   "task_items": [
     {
@@ -25,9 +27,45 @@
           "maven_cmd": "mvn"
         }
       }
+    },
+    {
+      "id": "a498e80e-5f81-4d89-825a-f851404e60db",
+      "task_id": "303ef8a4-6316-48c7-abe7-eb5d1063f853",
+      "name": "",
+      "enabled": true,
+      "inputs": {
+        "file_inputs": {
+          "file": [
+            {
+              "type": "local_output",
+              "path": "/tmp/simple_deploy_artifacts/app.jar",
+              "source_task_id": "5edef429-0e7d-4195-8b01-34a41f0cba83",
+              "source_output": "artifact"
+            }
+          ]
+        },
+        "vars": {
+          "remote_dest_dir": "/home/firework/firework_admin_back",
+          "dest_name": "firework-admin-back-0.1.0.jar",
+          "file_mode": "0644",
+          "python": "/usr/bin/python3"
+        }
+      }
+    },
+    {
+      "id": "3a63facd-03fc-4e1d-8e7c-2f868615df8a",
+      "task_id": "395f9a24-b9ef-468e-a2b3-ab40a1a28a3e",
+      "name": "",
+      "enabled": true,
+      "inputs": {
+        "file_inputs": {},
+        "vars": {}
+      }
     }
   ],
   "created_at": "2026-01-21T15:55:21.993279",
-  "updated_at": "2026-01-23T17:25:06.773871",
-  "last_run_id": "a641089d-e97b-4095-951c-55920a66464e"
+  "updated_at": "2026-01-28T08:34:28.681362",
+  "last_run_id": "7df4d957-b269-46db-845e-22e195494d0c",
+  "python_path": "/usr/local/bin/python3.12",
+  "run_seq": 9
 }

@@ -1,0 +1,35 @@
+[
+  {
+    "id": "19c67639-2788-478b-9250-14c2390ad255",
+    "name": "当前配置 2026-01-28 08:19:30",
+    "created_at": "2026-01-28T08:19:33.321013",
+    "inputs": {
+      "file_inputs": {
+        "a498e80e-5f81-4d89-825a-f851404e60db": {
+          "file": [
+            {
+              "type": "local_output",
+              "path": "/tmp/simple_deploy_artifacts/app.jar",
+              "source_task_id": "5edef429-0e7d-4195-8b01-34a41f0cba83",
+              "source_output": "artifact"
+            }
+          ]
+        }
+      },
+      "vars": {
+        "5edef429-0e7d-4195-8b01-34a41f0cba83": {
+          "project_dir": "/mnt/newdisk/work_space/musk/firework_back/firework_admin_back",
+          "artifact_glob": "target/*.jar",
+          "output_path": "/tmp/simple_deploy_artifacts/firework_admin_back.jar",
+          "maven_cmd": "mvn"
+        },
+        "a498e80e-5f81-4d89-825a-f851404e60db": {
+          "remote_dest_dir": "/home/firework/firework_admin_back",
+          "dest_name": "firework-admin-back-0.1.0.jar",
+          "file_mode": "0644",
+          "python": "/usr/bin/python3"
+        }
+      }
+    }
+  }
+]

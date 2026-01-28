@@ -3,7 +3,7 @@
   gather_facts: false
   become: yes
   vars:
-    port: "8080"
+    app_port: "8080"
     java_cmd: "java -jar /opt/app/app.jar"
     work_dir: "/opt/app"
     log_path: "/opt/app/app.log"
@@ -14,7 +14,7 @@
     - name: Kill process if listening on port (ignore if not found)
       ansible.builtin.shell: |
         set +e
-        PORT="{{ port }}"
+        PORT="{{ app_port }}"
         SIG="{{ signal | default('9') }}"
         if command -v lsof >/dev/null 2>&1; then
           PIDS=$(lsof -ti tcp:${PORT} || true)

@@ -22,6 +22,7 @@ import 'projects_controller.dart';
 
 class BatchesController extends GetxController {
   final ProjectsController projects = Get.find<ProjectsController>();
+  static const int systemStageIndex = -1;
 
   final RxList<Batch> batches = <Batch>[].obs;
   final RxnString selectedBatchId = RxnString();
@@ -32,7 +33,7 @@ class BatchesController extends GetxController {
 
   final RxList<Run> runs = <Run>[].obs;
   final RxnString selectedRunId = RxnString();
-  final RxInt selectedTaskIndex = 0.obs;
+  final RxInt selectedTaskIndex = systemStageIndex.obs;
   final RxList<String> bulkSelectedRunIds = <String>[].obs;
   final RxBool userPinnedRun = false.obs;
   final RxBool userPinnedTask = false.obs;
@@ -91,6 +92,12 @@ class BatchesController extends GetxController {
     selectedTaskIndex.value = index;
   }
 
+  void userSelectSystemStage() {
+    userPinnedRun.value = true;
+    userPinnedTask.value = true;
+    selectedTaskIndex.value = systemStageIndex;
+  }
+
   @override
   void onInit() {
     super.onInit();
@@ -129,6 +136,7 @@ class BatchesController extends GetxController {
       snapshots.clear();
       selectedBatchId.value = null;
       selectedRunId.value = null;
+      selectedTaskIndex.value = systemStageIndex;
       bulkSelectedRunIds.clear();
       userPinnedRun.value = false;
       userPinnedTask.value = false;
@@ -284,7 +292,7 @@ class BatchesController extends GetxController {
     if (pid == null || batch == null) {
       runs.clear();
       selectedRunId.value = null;
-      selectedTaskIndex.value = 0;
+      selectedTaskIndex.value = systemStageIndex;
       bulkSelectedRunIds.clear();
       userPinnedRun.value = false;
       userPinnedTask.value = false;
@@ -298,7 +306,7 @@ class BatchesController extends GetxController {
     if (_lastBatchId != batch.id) {
       _lastBatchId = batch.id;
       selectedRunId.value = null;
-      selectedTaskIndex.value = 0;
+      selectedTaskIndex.value = systemStageIndex;
       bulkSelectedRunIds.clear();
       userPinnedRun.value = false;
       userPinnedTask.value = false;
@@ -329,7 +337,7 @@ class BatchesController extends GetxController {
       lastRunByBatchId[batch.id] = latest;
     } else {
       selectedRunId.value = null;
-      selectedTaskIndex.value = 0;
+      selectedTaskIndex.value = systemStageIndex;
       userPinnedRun.value = false;
       userPinnedTask.value = false;
       currentLogLines.clear();
@@ -340,16 +348,29 @@ class BatchesController extends GetxController {
     }
 
     final run = selectedRun;
-    if (!userPinnedTask.value && run != null && run.taskResults.isNotEmpty) {
+    if (!userPinnedTask.value && run != null) {
       if (run.status == RunStatus.running) {
         final idx = run.taskResults.indexWhere(
           (t) => t.status == TaskExecStatus.running,
         );
         if (idx >= 0) {
           selectedTaskIndex.value = idx;
+        } else {
+          selectedTaskIndex.value = systemStageIndex;
         }
       } else {
-        selectedTaskIndex.value = run.taskResults.length - 1;
+        if (run.taskResults.isEmpty) {
+          selectedTaskIndex.value = systemStageIndex;
+        } else {
+          final allBlocked = run.taskResults.every(
+            (t) =>
+                t.status == TaskExecStatus.waiting ||
+                t.status == TaskExecStatus.blocked,
+          );
+          selectedTaskIndex.value = allBlocked
+              ? systemStageIndex
+              : run.taskResults.length - 1;
+        }
       }
     }
     await refreshLog();
@@ -455,7 +476,10 @@ class BatchesController extends GetxController {
       return;
     }
     final pp = AppServices.I.projectPaths(pid);
-    final file = pp.taskLogFile(run.id, selectedTaskIndex.value);
+    final taskIndex = selectedTaskIndex.value;
+    final file = taskIndex < 0
+        ? pp.systemLogFile(run.id)
+        : pp.taskLogFile(run.id, taskIndex);
     final exists = await file.exists();
     final len = exists ? await file.length() : null;
     currentLogFileSize.value = len;
@@ -682,7 +706,7 @@ class BatchesController extends GetxController {
     userPinnedRun.value = false;
     userPinnedTask.value = false;
     selectedRunId.value = null;
-    selectedTaskIndex.value = 0;
+    selectedTaskIndex.value = systemStageIndex;
 
     // Fire-and-forget: 让 UI 可以立即轮询展示进度/日志。
     // 错误会落盘到 runs/<run_id>.json，并写入 app_logs。
@@ -802,7 +826,7 @@ class BatchesController extends GetxController {
     bulkSelectedRunIds.removeWhere(runIds.contains);
     if (runIds.contains(selectedRunId.value)) {
       selectedRunId.value = null;
-      selectedTaskIndex.value = 0;
+      selectedTaskIndex.value = systemStageIndex;
       userPinnedRun.value = false;
       userPinnedTask.value = false;
       _resetLogView();

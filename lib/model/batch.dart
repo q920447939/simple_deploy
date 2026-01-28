@@ -143,6 +143,8 @@ class Batch {
   final DateTime createdAt;
   final DateTime updatedAt;
   final String? lastRunId;
+  final String pythonPath;
+  final int runSeq;
 
   const Batch({
     required this.id,
@@ -156,6 +158,8 @@ class Batch {
     required this.createdAt,
     required this.updatedAt,
     required this.lastRunId,
+    required this.pythonPath,
+    required this.runSeq,
   });
 
   Batch copyWith({
@@ -168,6 +172,8 @@ class Batch {
     List<BatchTaskItem>? taskItems,
     DateTime? updatedAt,
     String? lastRunId,
+    String? pythonPath,
+    int? runSeq,
   }) {
     return Batch(
       id: id,
@@ -181,6 +187,8 @@ class Batch {
       createdAt: createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       lastRunId: lastRunId ?? this.lastRunId,
+      pythonPath: pythonPath ?? this.pythonPath,
+      runSeq: runSeq ?? this.runSeq,
     );
   }
 
@@ -225,6 +233,8 @@ class Batch {
       createdAt: DateTime.parse(json['created_at'] as String),
       updatedAt: DateTime.parse(json['updated_at'] as String),
       lastRunId: json['last_run_id'] as String?,
+      pythonPath: (json['python_path'] as String?) ?? '/usr/bin/python3',
+      runSeq: (json['run_seq'] as num?)?.toInt() ?? 0,
     );
   }
 
@@ -258,6 +268,8 @@ class Batch {
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
       'last_run_id': lastRunId,
+      'python_path': pythonPath,
+      'run_seq': runSeq,
     };
   }
 }

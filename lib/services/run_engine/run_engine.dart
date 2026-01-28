@@ -114,6 +114,10 @@ class RunEngine {
     final orderedTasks = [for (final e in orderedEntries) e.task];
 
     final runId = uuid.v4();
+    final pythonPath = batch.pythonPath.trim().isEmpty
+        ? '/usr/bin/python3'
+        : batch.pythonPath.trim();
+    final nextSeq = batch.runSeq + 1;
     final lockInfo = BatchLockInfo(
       runId: runId,
       pid: pid,
@@ -129,14 +133,18 @@ class RunEngine {
     final effectiveVarsByItemId = _buildEffectiveVarsByItemId(
       orderedEntries,
       inputs.vars,
+      pythonPath: pythonPath,
     );
 
     Run run = Run(
       id: runId,
       projectId: projectId,
       batchId: batch.id,
+      seq: nextSeq,
       startedAt: DateTime.now(),
       endedAt: null,
+      systemStatus: TaskExecStatus.running,
+      systemError: null,
       status: RunStatus.running,
       result: RunResult.failed,
       taskResults: [
@@ -160,15 +168,74 @@ class RunEngine {
       status: BatchStatus.running,
       updatedAt: DateTime.now(),
       lastRunId: runId,
+      runSeq: nextSeq,
+      pythonPath: pythonPath,
     );
+
+    Future<void> Function(String) logSystem = (_) async {};
+    File? snapshotFile;
+    Directory? snapshotDir;
+    Map<String, Object?>? snapshot;
 
     try {
       await batchesStore.upsert(updatedBatch);
       await runsStore.write(run);
 
+      final systemLog = pp.systemLogFile(runId);
+      await systemLog.parent.create(recursive: true);
+      logSystem = (String message) async {
+        final ts = DateTime.now().toIso8601String();
+        await systemLog.writeAsString(
+          '[$ts] $message\n',
+          mode: FileMode.writeOnlyAppend,
+          flush: true,
+        );
+      };
+
+      snapshotDir = pp.runSnapshotDirFor(batch.id, nextSeq);
+      await snapshotDir.create(recursive: true);
+      snapshotFile = pp.runSnapshotFileFor(batch.id, nextSeq);
+      snapshot = <String, Object?>{
+        'run_id': runId,
+        'batch_id': batch.id,
+        'seq': nextSeq,
+        'created_at': DateTime.now().toIso8601String(),
+        'python_path': pythonPath,
+        'control_server': _snapshotServer(controlServer),
+        'managed_servers': managedServers
+            .map((s) => _snapshotServer(s))
+            .toList(),
+        'task_order': batch.taskOrder,
+        'task_items': [
+          for (var i = 0; i < orderedEntries.length; i++)
+            <String, Object?>{
+              'item_id': orderedEntries[i].item.id,
+              'task_id': orderedEntries[i].task.id,
+              'name': orderedEntries[i].item.name.isNotEmpty
+                  ? orderedEntries[i].item.name
+                  : orderedEntries[i].task.name,
+              'index': i,
+              'type': orderedEntries[i].task.type,
+              'enabled': orderedEntries[i].item.enabled,
+              'playbook_id': orderedEntries[i].task.playbookId,
+            },
+        ],
+        'inputs': inputs.toJson(),
+        'resolved_vars': effectiveVarsByItemId,
+        'resolved_files': const <String, Object?>{},
+        'file_meta': const <String, Object?>{},
+        'status': 'preparing',
+      };
+      final snap = snapshot;
+      final snapFile = snapshotFile;
+      final snapDir = snapshotDir;
+      await _writeSnapshot(snapFile, snap);
+      await logSystem('run start: batch=${batch.id} seq=$nextSeq');
+
       _assertTaskOrderOrThrow(orderedTasks);
 
       if (orderedEntries.any((e) => e.task.isLocalScript)) {
+        await logSystem('prepare stage for local scripts');
         final preStage = await _prepareStage(
           pp: pp,
           runId: runId,
@@ -179,6 +246,7 @@ class RunEngine {
           managedServers: managedServers,
           projectId: projectId,
           effectiveVarsByItemId: effectiveVarsByItemId,
+          pythonPath: pythonPath,
         );
 
         final localRun = await _runLocalScripts(
@@ -193,10 +261,20 @@ class RunEngine {
         );
         run = localRun.run;
         if (localRun.aborted) {
+          run = run.copyWith(
+            systemStatus: TaskExecStatus.failed,
+            systemError: run.errorSummary ?? 'local_script failed',
+          );
+          run = _markPendingTasksBlocked(run);
+          await runsStore.write(run);
+          snap['status'] = 'failed';
+          snap['error'] = run.errorSummary ?? 'local_script failed';
+          await _writeSnapshot(snapFile, snap);
           return;
         }
       }
 
+      await logSystem('prepare input files');
       final preparedInputs = await _persistFileInputsToArtifacts(
         pp: pp,
         runId: runId,
@@ -216,6 +294,17 @@ class RunEngine {
       );
       await runsStore.write(run);
 
+      await logSystem('copy snapshot files');
+      final snapshotFilesMeta = await _copySnapshotFilesFromArtifacts(
+        pp.runArtifactsFor(runId),
+        snapDir,
+      );
+      snap['resolved_files'] = preparedInputs.remoteFilesMappingByItemId;
+      snap['file_meta'] = snapshotFilesMeta;
+      snap['status'] = 'staged';
+      await _writeSnapshot(snapFile, snap);
+
+      await logSystem('prepare bundle stage');
       final stagePrepared = await _prepareStage(
         pp: pp,
         runId: runId,
@@ -225,13 +314,20 @@ class RunEngine {
         managedServers: managedServers,
         projectId: projectId,
         effectiveVarsByItemId: effectiveVarsByItemId,
+        pythonPath: pythonPath,
       );
 
+      await logSystem('create bundle.zip');
       final bundle = await _zipStage(
         stage: stagePrepared.stage,
         runArtifacts: pp.runArtifactsFor(runId),
         remoteRunDir: stagePrepared.remoteRunDir,
       );
+
+      await _copyBundleToSnapshot(bundle.bundleZip, snapDir);
+      snap['bundle_size'] = await bundle.bundleZip.length();
+      snap['status'] = 'ready';
+      await _writeSnapshot(snapFile, snap);
 
       final zipPrepared = _PreparedBundleAndRun(
         run: run,
@@ -242,6 +338,8 @@ class RunEngine {
 
       final hasAnyRemote = orderedTasks.any((t) => t.isAnsiblePlaybook);
       if (!hasAnyRemote) {
+        await logSystem('no remote tasks; mark run success');
+        run = run.copyWith(systemStatus: TaskExecStatus.success);
         run = run.copyWith(
           status: RunStatus.ended,
           result: RunResult.success,
@@ -252,6 +350,8 @@ class RunEngine {
           ),
         );
         await runsStore.write(run);
+        snap['status'] = 'complete';
+        await _writeSnapshot(snapFile, snap);
         return;
       }
 
@@ -263,6 +363,7 @@ class RunEngine {
       );
 
       await ssh.withConnection(endpoint, (conn) async {
+        await logSystem('connect control node');
         final runtime = await ControlNodeBootstrapper(
           conn: conn,
           endpoint: endpoint,
@@ -272,22 +373,26 @@ class RunEngine {
           allowUnsupportedOsAutoInstall: allowUnsupportedControlOsAutoInstall,
         ).ensureReady();
 
+        await logSystem('check ansible-playbook');
         await _requireRemoteOk(
           conn,
           '${_dq(runtime.ansiblePlaybook)} --version',
           title: '控制端缺少 ansible-playbook',
         );
+        await logSystem('check /tmp writable');
         await _requireRemoteOk(
           conn,
           'bash -lc "mkdir -p /tmp/simple_deploy && echo ok > /tmp/simple_deploy/.sd_write_test && test -s /tmp/simple_deploy/.sd_write_test && rm -f /tmp/simple_deploy/.sd_write_test"',
           title: '控制端 /tmp 不可写，无法创建运行目录',
         );
 
+        await logSystem('create remote run dir');
         await _requireRemoteOk(
           conn,
           'mkdir -p ${_dq(zipPrepared.remoteRunDir)}',
           title: '创建控制端运行目录失败',
         );
+        await logSystem('upload bundle.zip');
         await _uploadFileWithVerify(
           conn,
           local: zipPrepared.bundleZip!,
@@ -297,16 +402,23 @@ class RunEngine {
           runId: runId,
           progressLabel: '传输文件',
         );
+        await logSystem('unzip bundle.zip');
         await _requireRemoteOk(
           conn,
           'bash -lc "cd \\"${_bashEscape(zipPrepared.remoteRunDir)}\\" && if command -v unzip >/dev/null 2>&1; then unzip -o bundle.zip >/dev/null; else \\"${_bashEscape(runtime.pythonBin)}\\" -c \'import zipfile; zipfile.ZipFile("bundle.zip").extractall(".")\'; fi"',
           title: '控制端解包失败',
         );
+        await logSystem('init remote logs/results');
         await _requireRemoteOk(
           conn,
           'cd ${_dq(zipPrepared.remoteRunDir)} && mkdir -p logs results',
           title: '控制端初始化目录失败',
         );
+
+        run = run.copyWith(systemStatus: TaskExecStatus.success);
+        await runsStore.write(run);
+        snap['status'] = 'uploaded';
+        await _writeSnapshot(snapFile, snap);
 
         for (var i = 0; i < orderedTasks.length; i++) {
           final task = orderedTasks[i];
@@ -446,7 +558,11 @@ class RunEngine {
                     ? '任务失败：${task.name} (${recapInfo ?? "recap failed"})'
                     : '任务失败：${task.name} (exit=$exit)',
               );
+              run = _markPendingTasksBlocked(run);
               await runsStore.write(run);
+              snap['status'] = 'failed';
+              snap['error'] = errMsg;
+              await _writeSnapshot(snapFile, snap);
               return;
             }
           } finally {
@@ -481,6 +597,9 @@ class RunEngine {
           bizStatus: biz,
         );
         await runsStore.write(run);
+        snap['status'] = 'complete';
+        await _writeSnapshot(snapFile, snap);
+        await logSystem('run completed');
       });
     } on AppException catch (e) {
       logger.error(
@@ -492,13 +611,27 @@ class RunEngine {
           'error': e.toString(),
         },
       );
+      final shouldFailSystem = run.systemStatus == TaskExecStatus.running;
       run = run.copyWith(
         status: RunStatus.ended,
         result: RunResult.failed,
         endedAt: DateTime.now(),
+        systemStatus: shouldFailSystem
+            ? TaskExecStatus.failed
+            : run.systemStatus,
+        systemError: shouldFailSystem
+            ? '${e.title}: ${e.message}'
+            : run.systemError,
         errorSummary: '${e.title}: ${e.message}',
       );
+      run = _markPendingTasksBlocked(run);
       await runsStore.write(run);
+      if (snapshot != null && snapshotFile != null) {
+        snapshot['status'] = 'failed';
+        snapshot['error'] = '${e.title}: ${e.message}';
+        await _writeSnapshot(snapshotFile, snapshot);
+      }
+      await logSystem('run failed: ${e.title}: ${e.message}');
       rethrow;
     } on Object catch (e) {
       logger.error(
@@ -510,13 +643,25 @@ class RunEngine {
           'error': e.toString(),
         },
       );
+      final shouldFailSystem = run.systemStatus == TaskExecStatus.running;
       run = run.copyWith(
         status: RunStatus.ended,
         result: RunResult.failed,
         endedAt: DateTime.now(),
+        systemStatus: shouldFailSystem
+            ? TaskExecStatus.failed
+            : run.systemStatus,
+        systemError: shouldFailSystem ? e.toString() : run.systemError,
         errorSummary: e.toString(),
       );
+      run = _markPendingTasksBlocked(run);
       await runsStore.write(run);
+      if (snapshot != null && snapshotFile != null) {
+        snapshot['status'] = 'failed';
+        snapshot['error'] = e.toString();
+        await _writeSnapshot(snapshotFile, snapshot);
+      }
+      await logSystem('run failed: $e');
       throw AppException(
         code: AppErrorCode.unknown,
         title: '运行失败',
@@ -589,13 +734,18 @@ class RunEngine {
 
   Map<String, Map<String, String>> _buildEffectiveVarsByItemId(
     List<_BatchTaskEntry> entries,
-    Map<String, Map<String, String>> inputVars,
-  ) {
+    Map<String, Map<String, String>> inputVars, {
+    required String pythonPath,
+  }) {
     final out = <String, Map<String, String>>{};
     for (final entry in entries) {
       final t = entry.task;
       final defs = t.variables;
-      if (defs.isEmpty) continue;
+      if (defs.isEmpty) {
+        final py = pythonPath.trim().isEmpty ? '/usr/bin/python3' : pythonPath;
+        out[entry.item.id] = {'python': py};
+        continue;
+      }
       final map = <String, String>{
         for (final d in defs) d.name: d.defaultValue,
       };
@@ -605,7 +755,7 @@ class RunEngine {
           const <String, String>{};
 
       // Disallow unknown vars to catch copy/paste mistakes.
-      final allowed = defs.map((d) => d.name).toSet();
+      final allowed = defs.map((d) => d.name).toSet()..add('python');
       for (final k in provided.keys) {
         if (!allowed.contains(k)) {
           throw AppException(
@@ -617,6 +767,9 @@ class RunEngine {
         }
       }
       map.addAll(provided);
+
+      final py = pythonPath.trim().isEmpty ? '/usr/bin/python3' : pythonPath;
+      map['python'] = py;
 
       for (final d in defs) {
         if (!d.required) continue;
@@ -644,6 +797,7 @@ class RunEngine {
     required List<Server> managedServers,
     required String projectId,
     required Map<String, Map<String, String>> effectiveVarsByItemId,
+    required String pythonPath,
   }) async {
     final runArtifacts = pp.runArtifactsFor(runId);
     await runArtifacts.create(recursive: true);
@@ -704,7 +858,7 @@ class RunEngine {
       }
     }
 
-    final inventory = _buildInventory(managedServers);
+    final inventory = _buildInventory(managedServers, pythonPath);
     await File(
       p.join(stage.path, 'inventory.ini'),
     ).writeAsString('$inventory\n', flush: true);
@@ -721,6 +875,7 @@ class RunEngine {
       'run_dir': remoteRunDir,
       'files': filesByTaskId,
       'files_by_item': remoteFilesMappingByItemId,
+      'python': pythonPath,
     };
     await File(p.join(stage.path, 'vars.json')).writeAsString(
       '${const JsonEncoder.withIndent('  ').convert(common)}\n',
@@ -1125,6 +1280,9 @@ class RunEngine {
                 sourceTask = sourceEntry.task;
                 sourceIndex = taskIndexByItemId[sourceEntry.item.id];
                 sourceVars = varsByItemId[sourceEntry.item.id];
+              } else if (sourceIndex != null) {
+                final sourceItemId = orderedEntries[sourceIndex].item.id;
+                sourceVars = varsByItemId[sourceItemId];
               } else if (sourceIndex == null) {
                 throw AppException(
                   code: AppErrorCode.validation,
@@ -1164,6 +1322,16 @@ class RunEngine {
                   rawPath = derived;
                 }
               }
+            }
+            sourceVars ??= varsByItemId[sourceId];
+            final fromVar = sourceVars?['output_path']?.trim();
+            if (fromVar != null && fromVar.isNotEmpty) {
+              rawPath = fromVar;
+            } else if (rawPath.contains(r'${')) {
+              rawPath = _expandPathTemplate(
+                rawPath,
+                sourceVars ?? const <String, String>{},
+              );
             }
           }
           if (rawPath.isEmpty) {
@@ -1275,13 +1443,15 @@ class RunEngine {
     return candidate;
   }
 
-  String _buildInventory(List<Server> managedServers) {
+  String _buildInventory(List<Server> managedServers, String pythonPath) {
     final lines = <String>['[all]'];
     for (final s in managedServers) {
       final id = s.id.replaceAll('-', '_');
       final user = s.username.isEmpty ? 'root' : s.username;
+      final pyRaw = pythonPath.trim().isEmpty ? '/usr/bin/python3' : pythonPath;
+      final py = _iniEscape(pyRaw);
       lines.add(
-        'host_$id ansible_host=${s.ip} ansible_user=$user ansible_password=${_iniEscape(s.password)} ansible_port=${s.port} ansible_connection=paramiko ansible_python_interpreter=/usr/bin/python3',
+        'host_$id ansible_host=${s.ip} ansible_user=$user ansible_password=${_iniEscape(s.password)} ansible_port=${s.port} ansible_connection=paramiko ansible_python_interpreter=$py',
       );
     }
     return lines.join('\n');
@@ -1403,6 +1573,69 @@ class RunEngine {
       if (test(x)) return x;
     }
     return null;
+  }
+
+  Map<String, Object?> _snapshotServer(Server s) {
+    return {
+      'id': s.id,
+      'name': s.name,
+      'ip': s.ip,
+      'port': s.port,
+      'username': s.username,
+      'type': s.type,
+      'enabled': s.enabled,
+    };
+  }
+
+  Future<void> _writeSnapshot(File file, Map<String, Object?> snapshot) async {
+    await AtomicFile.writeJson(file, snapshot);
+  }
+
+  Future<Map<String, Object?>> _copySnapshotFilesFromArtifacts(
+    Directory runArtifacts,
+    Directory snapshotDir,
+  ) async {
+    final out = <String, Object?>{};
+    final filesRoot = Directory(p.join(snapshotDir.path, 'files'));
+    await filesRoot.create(recursive: true);
+    if (!await runArtifacts.exists()) return out;
+    await for (final entity in runArtifacts.list(
+      recursive: true,
+      followLinks: false,
+    )) {
+      if (entity is! File) continue;
+      final rel = p.relative(entity.path, from: runArtifacts.path);
+      if (!rel.startsWith('task_')) continue;
+      final dst = File(p.join(filesRoot.path, rel));
+      await dst.parent.create(recursive: true);
+      await entity.copy(dst.path);
+      final stat = await dst.stat();
+      out[p.posix.join('files', rel.replaceAll('\\', '/'))] = {
+        'size': stat.size,
+        'mtime': stat.modified.toIso8601String(),
+      };
+    }
+    return out;
+  }
+
+  Future<void> _copyBundleToSnapshot(File bundle, Directory snapshotDir) async {
+    final dst = File(p.join(snapshotDir.path, 'bundle.zip'));
+    if (await dst.exists()) {
+      await dst.delete();
+    }
+    await bundle.copy(dst.path);
+  }
+
+  Run _markPendingTasksBlocked(Run run) {
+    final list = <TaskRunResult>[];
+    for (final t in run.taskResults) {
+      if (t.status == TaskExecStatus.waiting) {
+        list.add(t.copyWith(status: TaskExecStatus.blocked));
+      } else {
+        list.add(t);
+      }
+    }
+    return run.copyWith(taskResults: list);
   }
 
   Future<void> _requireRemoteOk(

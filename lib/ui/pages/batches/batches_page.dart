@@ -318,34 +318,49 @@ class _HorizontalTaskProgressBar extends StatelessWidget {
     return '$text ${units[unit]}';
   }
 
-  Widget _buildUploadItem(BuildContext context, UploadProgress upload) {
-    final color = switch (upload.status) {
-      UploadProgressStatus.running => m.Colors.blue,
-      UploadProgressStatus.success => m.Colors.green,
-      UploadProgressStatus.failed => m.Colors.red,
+  Widget _buildSystemStageItem(
+    BuildContext context, {
+    required Run? run,
+    required UploadProgress? upload,
+    required bool isSelected,
+  }) {
+    final status = run?.systemStatus ?? TaskExecStatus.waiting;
+    final color = switch (status) {
+      TaskExecStatus.running => m.Colors.blue,
+      TaskExecStatus.success => m.Colors.green,
+      TaskExecStatus.failed => m.Colors.red,
+      TaskExecStatus.blocked => m.Colors.grey.shade500,
       _ => m.Colors.grey.shade400,
     };
-    final statusText = switch (upload.status) {
-      UploadProgressStatus.running => '上传中',
-      UploadProgressStatus.success => '已完成',
-      UploadProgressStatus.failed => '失败',
-      _ => '未知',
+    final statusText = switch (status) {
+      TaskExecStatus.running => '准备中',
+      TaskExecStatus.success => '完成',
+      TaskExecStatus.failed => '失败',
+      TaskExecStatus.blocked => '阻断',
+      _ => '未开始',
     };
-    final title = upload.message?.trim().isNotEmpty == true
-        ? upload.message!.trim()
-        : '传输文件';
-    final percent = upload.total > 0
-        ? (upload.sent / upload.total * 100).clamp(0, 100)
-        : 0.0;
-    final detail = upload.total > 0
-        ? '${percent.toStringAsFixed(0)}% · ${_formatBytes(upload.sent)}/${_formatBytes(upload.total)}'
-        : _formatBytes(upload.sent);
+    String detail = statusText;
+    if (upload != null) {
+      final percent = upload.total > 0
+          ? (upload.sent / upload.total * 100).clamp(0, 100)
+          : 0.0;
+      detail = upload.total > 0
+          ? '${percent.toStringAsFixed(0)}% · ${_formatBytes(upload.sent)}/${_formatBytes(upload.total)}'
+          : _formatBytes(upload.sent);
+    }
+
     return Container(
       padding: EdgeInsets.symmetric(horizontal: 8.r),
       decoration: BoxDecoration(
-        color: Colors.transparent,
+        color: isSelected
+            ? Theme.of(context).colorScheme.muted
+            : Colors.transparent,
         borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: Colors.transparent),
+        border: Border.all(
+          color: isSelected
+              ? Theme.of(context).colorScheme.border
+              : Colors.transparent,
+        ),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -356,10 +371,17 @@ class _HorizontalTaskProgressBar extends StatelessWidget {
             alignment: Alignment.center,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: Colors.transparent,
+              color: isSelected ? color : Colors.transparent,
               border: Border.all(color: color, width: 1.5),
             ),
-            child: Icon(Icons.cloud_upload, size: 10, color: color),
+            child: Text(
+              'S',
+              style: TextStyle(
+                fontSize: 9.sp,
+                color: isSelected ? Colors.white : color,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
           ),
           SizedBox(width: 8.w),
           Column(
@@ -367,16 +389,16 @@ class _HorizontalTaskProgressBar extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                title,
+                '系统准备',
                 style: TextStyle(fontSize: 12.sp, fontWeight: FontWeight.w500),
               ),
               Text(
-                '$statusText · $detail',
+                detail,
                 style: TextStyle(fontSize: 10.sp, color: color),
               ),
             ],
           ),
-          if (upload.status == UploadProgressStatus.running) ...[
+          if (status == TaskExecStatus.running) ...[
             SizedBox(width: 8.w),
             const SizedBox(
               width: 10,
@@ -409,16 +431,15 @@ class _HorizontalTaskProgressBar extends StatelessWidget {
               final run = controller.selectedRun;
               final results = run?.taskResults ?? const <TaskRunResult>[];
               final upload = controller.uploadProgress.value;
-              final hasUpload = upload != null;
 
-              if (entries.isEmpty && !hasUpload) {
+              if (entries.isEmpty) {
                 return const Center(child: Text('暂无任务'));
               }
 
               return ListView.separated(
                 scrollDirection: Axis.horizontal,
                 padding: EdgeInsets.symmetric(vertical: 12.h),
-                itemCount: entries.length + (hasUpload ? 1 : 0),
+                itemCount: entries.length + 1,
                 separatorBuilder: (context, index) {
                   return Container(
                     width: 24.w,
@@ -430,13 +451,22 @@ class _HorizontalTaskProgressBar extends StatelessWidget {
                   );
                 },
                 itemBuilder: (context, index) {
-                  if (hasUpload && index == 0) {
-                    return _buildUploadItem(context, upload);
+                  if (index == 0) {
+                    final isSelected =
+                        controller.selectedTaskIndex.value ==
+                        BatchesController.systemStageIndex;
+                    return GestureDetector(
+                      onTap: controller.userSelectSystemStage,
+                      child: _buildSystemStageItem(
+                        context,
+                        run: run,
+                        upload: upload,
+                        isSelected: isSelected,
+                      ),
+                    );
                   }
-                  final taskIndex = hasUpload ? index - 1 : index;
-                  if (taskIndex < 0 || taskIndex >= entries.length) {
-                    return const SizedBox.shrink();
-                  }
+
+                  final taskIndex = index - 1;
                   final entry = entries[taskIndex];
                   final result = taskIndex < results.length
                       ? results[taskIndex]
@@ -453,6 +483,7 @@ class _HorizontalTaskProgressBar extends StatelessWidget {
                     TaskExecStatus.running => m.Colors.blue,
                     TaskExecStatus.success => m.Colors.green,
                     TaskExecStatus.failed => m.Colors.red,
+                    TaskExecStatus.blocked => m.Colors.grey.shade500,
                     _ => m.Colors.grey.shade400,
                   };
 
@@ -1015,6 +1046,7 @@ class _TaskProgressView extends StatelessWidget {
     if (inputs.vars.isEmpty) return '变量：未设置';
     final parts = <String>[];
     for (final e in inputs.vars.entries) {
+      if (e.key == 'python') continue;
       if (e.value.trim().isEmpty) continue;
       parts.add('${e.key}=${e.value}');
       if (parts.length >= 3) break;
@@ -1023,10 +1055,38 @@ class _TaskProgressView extends StatelessWidget {
     return '变量：${parts.join(', ')}';
   }
 
+  String _formatRunFiles(TaskRunResult? result) {
+    final inputs = result?.fileInputs;
+    if (inputs == null || inputs.isEmpty) return '文件：未记录';
+    final parts = <String>[];
+    for (final e in inputs.entries) {
+      parts.add('${e.key}(${e.value.length})');
+      if (parts.length >= 3) break;
+    }
+    return '文件：${parts.join(', ')}';
+  }
+
+  String _formatRunVars(TaskRunResult? result) {
+    final vars = result?.vars;
+    if (vars == null || vars.isEmpty) return '变量：未记录';
+    final parts = <String>[];
+    for (final e in vars.entries) {
+      if (e.key == 'python') continue;
+      if (e.value.trim().isEmpty) continue;
+      parts.add('${e.key}=${e.value}');
+      if (parts.length >= 3) break;
+    }
+    if (parts.isEmpty) return '变量：未记录';
+    return '变量：${parts.join(', ')}';
+  }
+
   @override
   Widget build(BuildContext context) {
     final controller = Get.find<BatchesController>();
     final paused = batch.status == BatchStatus.paused;
+    final run = controller.selectedRun;
+    final showingRun = run != null;
+    final canEdit = paused && !showingRun;
     return Padding(
       padding: EdgeInsets.all(12.r),
       child: Column(
@@ -1037,6 +1097,7 @@ class _TaskProgressView extends StatelessWidget {
             value: control?.name ?? 'Unknown',
             icon: Icons.computer,
           ),
+          _InfoItem(label: 'Python', value: batch.pythonPath, icon: Icons.code),
           _InfoItem(
             label: '被控端',
             value: '${managed.length} 台',
@@ -1050,8 +1111,13 @@ class _TaskProgressView extends StatelessWidget {
           SizedBox(height: 12.h),
           Row(
             children: [
-              const Expanded(child: Text('任务参数')),
-              if (paused) Text('可编辑').muted(),
+              Expanded(
+                child: Text(
+                  showingRun ? '任务参数（运行快照 #${run.seq}）' : '任务参数（批次配置）',
+                ),
+              ),
+              if (canEdit) Text('可编辑').muted(),
+              if (showingRun) Text('只读').muted(),
             ],
           ),
           SizedBox(height: 8.h),
@@ -1065,6 +1131,9 @@ class _TaskProgressView extends StatelessWidget {
                     itemBuilder: (context, i) {
                       final entry = entries[i];
                       final inputs = entry.item.inputs;
+                      final result = (run != null && i < run.taskResults.length)
+                          ? run.taskResults[i]
+                          : null;
                       return m.ListTile(
                         title: Text(entry.displayName),
                         subtitle: Column(
@@ -1074,11 +1143,19 @@ class _TaskProgressView extends StatelessWidget {
                               'task_id=${entry.task.id.substring(0, 8)}  item_id=${entry.item.id.substring(0, 8)}',
                             ).muted(),
                             SizedBox(height: 2.h),
-                            Text(_formatFileInputs(inputs)).muted(),
-                            Text(_formatVars(inputs)).muted(),
+                            Text(
+                              showingRun
+                                  ? _formatRunFiles(result)
+                                  : _formatFileInputs(inputs),
+                            ).muted(),
+                            Text(
+                              showingRun
+                                  ? _formatRunVars(result)
+                                  : _formatVars(inputs),
+                            ).muted(),
                           ],
                         ),
-                        trailing: paused
+                        trailing: canEdit
                             ? GhostButton(
                                 density: ButtonDensity.icon,
                                 onPressed: () async {
@@ -1234,7 +1311,7 @@ class _RunHistoryView extends StatelessWidget {
                               SizedBox(width: 8.w),
                               Expanded(
                                 child: Text(
-                                  formatDateTime(r.startedAt),
+                                  '#${r.seq} · ${formatDateTime(r.startedAt)}',
                                   style: const TextStyle(
                                     fontFamily: 'GeistMono',
                                   ),
@@ -1376,10 +1453,15 @@ class _BatchLogAreaState extends State<_BatchLogArea> {
             children: [
               const Icon(Icons.terminal, size: 16),
               SizedBox(width: 8.w),
-              const Text(
-                'Execution Logs',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
+              Obx(() {
+                final isSystem =
+                    controller.selectedTaskIndex.value ==
+                    BatchesController.systemStageIndex;
+                return Text(
+                  isSystem ? '系统准备日志' : '任务日志',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                );
+              }),
               const Spacer(),
 
               Obx(
@@ -1720,6 +1802,7 @@ class _BatchEditDialog extends StatefulWidget {
 class _BatchEditDialogState extends State<_BatchEditDialog> {
   final m.TextEditingController _name = m.TextEditingController();
   final m.TextEditingController _desc = m.TextEditingController();
+  final m.TextEditingController _python = m.TextEditingController();
 
   String? _controlId;
   final Set<String> _managed = <String>{};
@@ -1732,6 +1815,7 @@ class _BatchEditDialogState extends State<_BatchEditDialog> {
     if (i != null) {
       _name.text = i.name;
       _desc.text = i.description;
+      _python.text = i.pythonPath;
       _controlId = i.controlServerId;
       _managed.addAll(i.managedServerIds);
       _items.addAll(i.orderedTaskItems());
@@ -1740,6 +1824,7 @@ class _BatchEditDialogState extends State<_BatchEditDialog> {
           .where((s) => s.type == ServerType.control && s.enabled)
           .toList();
       _controlId = firstControl.isEmpty ? null : firstControl.first.id;
+      _python.text = '/usr/bin/python3';
     }
   }
 
@@ -1747,6 +1832,7 @@ class _BatchEditDialogState extends State<_BatchEditDialog> {
   void dispose() {
     _name.dispose();
     _desc.dispose();
+    _python.dispose();
     super.dispose();
   }
 
@@ -1793,6 +1879,14 @@ class _BatchEditDialogState extends State<_BatchEditDialog> {
                   )
                   .toList(),
               onChanged: (v) => setState(() => _controlId = v),
+            ),
+            SizedBox(height: 12.h),
+            m.TextField(
+              controller: _python,
+              decoration: const m.InputDecoration(
+                labelText: '远程 Python 路径（批次级）',
+                hintText: '/usr/bin/python3',
+              ),
             ),
             SizedBox(height: 16.h),
             Row(
@@ -1944,6 +2038,10 @@ class _BatchEditDialogState extends State<_BatchEditDialog> {
                       createdAt: initial?.createdAt ?? now,
                       updatedAt: now,
                       lastRunId: initial?.lastRunId,
+                      pythonPath: _python.text.trim().isEmpty
+                          ? '/usr/bin/python3'
+                          : _python.text.trim(),
+                      runSeq: initial?.runSeq ?? 0,
                     ),
                   );
                 }
@@ -2061,6 +2159,7 @@ class _BatchInputsDialogState extends State<_BatchInputsDialog> {
           () => <String, m.TextEditingController>{},
         );
         for (final v in t.variables) {
+          if (v.name == 'python') continue;
           final preset = initialVars?[v.name] ?? entry.item.inputs.vars[v.name];
           byVar.putIfAbsent(
             v.name,
