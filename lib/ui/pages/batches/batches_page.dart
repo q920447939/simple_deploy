@@ -276,11 +276,11 @@ class _BatchDetail extends StatelessWidget {
         ),
         const VerticalDivider(width: 1),
         Expanded(
-          child: Column(
-            children: [
-              _HorizontalTaskProgressBar(entries: entries),
-              Expanded(child: _BatchLogArea(batch: batch)),
-            ],
+          child: _BatchMainArea(
+            batch: batch,
+            control: control,
+            managed: managed,
+            entries: entries,
           ),
         ),
       ],
@@ -589,6 +589,175 @@ class _HorizontalTaskProgressBar extends StatelessWidget {
   }
 }
 
+class _BatchMainArea extends StatefulWidget {
+  final Batch batch;
+  final Server? control;
+  final List<Server> managed;
+  final List<_BatchTaskEntry> entries;
+
+  const _BatchMainArea({
+    required this.batch,
+    required this.control,
+    required this.managed,
+    required this.entries,
+  });
+
+  @override
+  State<_BatchMainArea> createState() => _BatchMainAreaState();
+}
+
+class _BatchMainAreaState extends State<_BatchMainArea> {
+  int _tabIndex = 0; // 0: 配置, 1: 日志, 2: 历史
+  String _lastStatus = '';
+  String? _lastRunId;
+  bool _autoSwitchArmed = true;
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = Get.find<BatchesController>();
+    return Obx(() {
+      final selectedRun = controller.selectedRun;
+      final running = widget.batch.status == BatchStatus.running;
+      final status = widget.batch.status;
+      if (_lastStatus != status) {
+        _lastStatus = status;
+        _autoSwitchArmed = status == BatchStatus.running;
+      }
+      final runId = selectedRun?.id;
+      if (_lastRunId != runId) {
+        _lastRunId = runId;
+        _autoSwitchArmed = true;
+      }
+
+      final shouldFocusLogs = running || selectedRun != null;
+      if (_autoSwitchArmed && shouldFocusLogs && _tabIndex == 0) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          setState(() => _tabIndex = 1);
+        });
+        _autoSwitchArmed = false;
+      }
+
+      final canEdit = widget.batch.status != BatchStatus.running;
+
+      return Column(
+        children: [
+          _HorizontalTaskProgressBar(entries: widget.entries),
+          SizedBox(
+            height: 40.h,
+            child: Row(
+              children: [
+                _TabBtn(
+                  label: '配置',
+                  icon: Icons.tune,
+                  isSelected: _tabIndex == 0,
+                  onTap: () => setState(() => _tabIndex = 0),
+                ),
+                _TabBtn(
+                  label: '日志',
+                  icon: Icons.article,
+                  isSelected: _tabIndex == 1,
+                  onTap: () => setState(() => _tabIndex = 1),
+                ),
+                _TabBtn(
+                  label: '历史记录',
+                  icon: Icons.history,
+                  isSelected: _tabIndex == 2,
+                  onTap: () => setState(() => _tabIndex = 2),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          Expanded(
+            child: switch (_tabIndex) {
+              0 => _BatchConfigView(
+                batch: widget.batch,
+                control: widget.control,
+                managed: widget.managed,
+                entries: widget.entries,
+                canEdit: canEdit,
+              ),
+              1 => _BatchLogArea(batch: widget.batch),
+              _ => _RunHistoryView(controller: controller),
+            },
+          ),
+        ],
+      );
+    });
+  }
+}
+
+class _BatchConfigView extends StatelessWidget {
+  final Batch batch;
+  final Server? control;
+  final List<Server> managed;
+  final List<_BatchTaskEntry> entries;
+  final bool canEdit;
+
+  const _BatchConfigView({
+    required this.batch,
+    required this.control,
+    required this.managed,
+    required this.entries,
+    required this.canEdit,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = Get.find<BatchesController>();
+    return Column(
+      children: [
+        Container(
+          padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 8.h),
+          decoration: BoxDecoration(
+            border: Border(
+              bottom: BorderSide(color: Theme.of(context).colorScheme.border),
+            ),
+          ),
+          child: Row(
+            children: [
+              const Text('任务与参数').p(),
+              const Spacer(),
+              if (canEdit)
+                OutlineButton(
+                  onPressed: () async {
+                    final inputs = await showDialog<RunInputs>(
+                      context: context,
+                      builder: (context) => _BatchInputsDialog(
+                        entries: entries,
+                        actionLabel: '保存参数',
+                        enforceRequired: false,
+                      ),
+                    );
+                    if (inputs == null) return;
+                    try {
+                      await controller.updateBatchTaskInputs(batch, inputs);
+                    } on AppException catch (e) {
+                      if (context.mounted) {
+                        await showAppErrorDialog(context, e);
+                      }
+                    }
+                  },
+                  child: const Text('编辑参数'),
+                ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: _TaskProgressView(
+            batch: batch,
+            control: control,
+            managed: managed,
+            entries: entries,
+            forceConfig: true,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _BatchSidebar extends StatefulWidget {
   final Batch batch;
   final Server? control;
@@ -607,8 +776,6 @@ class _BatchSidebar extends StatefulWidget {
 }
 
 class _BatchSidebarState extends State<_BatchSidebar> {
-  int _tabIndex = 0; // 0: Tasks, 1: History
-
   @override
   Widget build(BuildContext context) {
     final controller = Get.find<BatchesController>();
@@ -641,7 +808,6 @@ class _BatchSidebarState extends State<_BatchSidebar> {
       if (inputs == null) return;
       try {
         await controller.startRunWithInputs(inputs);
-        if (mounted) setState(() => _tabIndex = 0); // Switch to tasks view
       } on AppException catch (e) {
         if (e.code == AppErrorCode.validation &&
             e.message.contains('检测到控制端环境不支持')) {
@@ -655,7 +821,6 @@ class _BatchSidebarState extends State<_BatchSidebar> {
               inputs,
               allowUnsupportedControlOsAutoInstall: true,
             );
-            if (mounted) setState(() => _tabIndex = 0); // Switch to tasks view
           }
         } else {
           if (context.mounted) {
@@ -703,7 +868,6 @@ class _BatchSidebarState extends State<_BatchSidebar> {
 
       try {
         await controller.startRunWithInputs(inputs);
-        if (mounted) setState(() => _tabIndex = 0);
       } on AppException catch (e) {
         if (e.code == AppErrorCode.validation &&
             e.message.contains('检测到控制端环境不支持')) {
@@ -717,7 +881,6 @@ class _BatchSidebarState extends State<_BatchSidebar> {
                 inputs,
                 allowUnsupportedControlOsAutoInstall: true,
               );
-              if (mounted) setState(() => _tabIndex = 0);
             }
           }
         } else {
@@ -869,40 +1032,7 @@ class _BatchSidebarState extends State<_BatchSidebar> {
             ],
           ),
         ),
-
-        // Tabs
-        SizedBox(
-          height: 40.h,
-          child: Row(
-            children: [
-              _TabBtn(
-                label: '概览',
-                icon: Icons.task,
-                isSelected: _tabIndex == 0,
-                onTap: () => setState(() => _tabIndex = 0),
-              ),
-              _TabBtn(
-                label: '历史记录',
-                icon: Icons.history,
-                isSelected: _tabIndex == 1,
-                onTap: () => setState(() => _tabIndex = 1),
-              ),
-            ],
-          ),
-        ),
-        const Divider(height: 1),
-
-        // Content
-        Expanded(
-          child: _tabIndex == 0
-              ? _TaskProgressView(
-                  batch: widget.batch,
-                  control: widget.control,
-                  managed: widget.managed,
-                  entries: widget.entries,
-                )
-              : _RunHistoryView(controller: controller),
-        ),
+        const Spacer(),
 
         // Bottom Actions (Delete Batch)
         if (paused)
@@ -1025,12 +1155,14 @@ class _TaskProgressView extends StatelessWidget {
   final Server? control;
   final List<Server> managed;
   final List<_BatchTaskEntry> entries;
+  final bool forceConfig;
 
   const _TaskProgressView({
     required this.batch,
     required this.control,
     required this.managed,
     required this.entries,
+    this.forceConfig = false,
   });
 
   String _formatFileInputs(BatchTaskInputs inputs) {
@@ -1084,10 +1216,10 @@ class _TaskProgressView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final controller = Get.find<BatchesController>();
-    final paused = batch.status == BatchStatus.paused;
-    final run = controller.selectedRun;
+    final running = batch.status == BatchStatus.running;
+    final run = forceConfig ? null : controller.selectedRun;
     final showingRun = run != null;
-    final canEdit = paused && !showingRun;
+    final canEdit = !running && !showingRun;
     return Padding(
       padding: EdgeInsets.all(12.r),
       child: Column(
