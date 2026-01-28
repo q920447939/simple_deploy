@@ -263,18 +263,14 @@ class _BatchDetail extends StatelessWidget {
       index++;
     }
 
-    return Row(
+    return Column(
       children: [
-        SizedBox(
-          width: 320.w, // Fixed sidebar width
-          child: _BatchSidebar(
-            batch: batch,
-            control: control,
-            managed: managed,
-            entries: entries,
-          ),
+        _BatchHeader(
+          batch: batch,
+          control: control,
+          managed: managed,
+          entries: entries,
         ),
-        const VerticalDivider(width: 1),
         Expanded(
           child: _BatchMainArea(
             batch: batch,
@@ -284,6 +280,285 @@ class _BatchDetail extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _BatchHeader extends StatelessWidget {
+  final Batch batch;
+  final Server? control;
+  final List<Server> managed;
+  final List<_BatchTaskEntry> entries;
+
+  const _BatchHeader({
+    required this.batch,
+    required this.control,
+    required this.managed,
+    required this.entries,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = Get.find<BatchesController>();
+    final running = batch.status == BatchStatus.running;
+    final ended = batch.status == BatchStatus.ended;
+
+    Color statusColor() {
+      return switch (batch.status) {
+        BatchStatus.running => m.Colors.blue,
+        BatchStatus.ended => m.Colors.grey,
+        BatchStatus.paused => m.Colors.orange,
+        _ => m.Colors.grey,
+      };
+    }
+
+    String statusText() {
+      return switch (batch.status) {
+        BatchStatus.running => '运行中',
+        BatchStatus.ended => '已结束',
+        BatchStatus.paused => '暂停',
+        _ => batch.status,
+      };
+    }
+
+    Future<void> onEditBatch() async {
+      final updated = await showDialog<Batch>(
+        context: context,
+        builder: (context) => _BatchEditDialog(
+          initial: batch,
+          servers: controller.servers,
+          tasks: controller.tasks,
+        ),
+      );
+      if (updated != null) {
+        try {
+          await controller.upsertBatch(updated);
+        } on AppException catch (e) {
+          if (context.mounted) {
+            await showAppErrorDialog(context, e);
+          }
+        }
+      }
+    }
+
+    Future<void> onEditParams() async {
+      final inputs = await showDialog<RunInputs>(
+        context: context,
+        builder: (context) => _BatchInputsDialog(
+          entries: entries,
+          actionLabel: '保存参数',
+          enforceRequired: false,
+        ),
+      );
+      if (inputs == null) return;
+      try {
+        await controller.updateBatchTaskInputs(batch, inputs);
+      } on AppException catch (e) {
+        if (context.mounted) {
+          await showAppErrorDialog(context, e);
+        }
+      }
+    }
+
+    Future<void> onExecute() async {
+      final inputs = await showDialog<RunInputs>(
+        context: context,
+        builder: (context) => _BatchInputsDialog(entries: entries),
+      );
+      if (inputs == null) return;
+      try {
+        await controller.startRunWithInputs(inputs);
+      } on AppException catch (e) {
+        if (e.code == AppErrorCode.validation &&
+            e.message.contains('检测到控制端环境不支持')) {
+          if (!context.mounted) return;
+          final allow = await _maybeConfirmUnsupportedControlAutoInstall(
+            context,
+            control!,
+          );
+          if (allow == true) {
+            await controller.startRunWithInputs(
+              inputs,
+              allowUnsupportedControlOsAutoInstall: true,
+            );
+          }
+        } else {
+          if (context.mounted) {
+            await showAppErrorDialog(context, e);
+          }
+        }
+      }
+    }
+
+    Future<void> onExecuteReuseLast() async {
+      var inputs = await controller.readLastInputs(batch.id);
+      if (inputs == null) {
+        if (context.mounted) {
+          showDialog(
+            context: context,
+            builder: (context) => const AlertDialog(
+              title: Text('无上次输入'),
+              content: Text('未找到上次执行的输入记录，请使用“运行”选择参数。'),
+            ),
+          );
+        }
+        return;
+      }
+
+      if (!context.mounted) return;
+      final check = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('确认沿用上次输入？'),
+          content: const Text('将使用上次的文件参数和变量直接开始执行。'),
+          actions: [
+            OutlineButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('取消'),
+            ),
+            PrimaryButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('执行'),
+            ),
+          ],
+        ),
+      );
+      if (!context.mounted) return;
+      if (check != true) return;
+
+      try {
+        await controller.startRunWithInputs(inputs);
+      } on AppException catch (e) {
+        if (e.code == AppErrorCode.validation &&
+            e.message.contains('检测到控制端环境不支持')) {
+          if (context.mounted) {
+            final allow = await _maybeConfirmUnsupportedControlAutoInstall(
+              context,
+              control!,
+            );
+            if (allow == true) {
+              await controller.startRunWithInputs(
+                inputs,
+                allowUnsupportedControlOsAutoInstall: true,
+              );
+            }
+          }
+        } else {
+          if (context.mounted) {
+            await showAppErrorDialog(context, e);
+          }
+        }
+      }
+    }
+
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: 16.w, vertical: 12.h),
+      decoration: BoxDecoration(
+        border: Border(
+          bottom: BorderSide(color: Theme.of(context).colorScheme.border),
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        batch.name,
+                        style: m.Theme.of(context).textTheme.titleLarge,
+                      ),
+                    ),
+                    Container(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: 10.w,
+                        vertical: 4.h,
+                      ),
+                      decoration: BoxDecoration(
+                        color: statusColor().withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(color: statusColor()),
+                      ),
+                      child: Text(
+                        statusText(),
+                        style: TextStyle(
+                          fontSize: 12.sp,
+                          color: statusColor(),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                if (batch.description.trim().isNotEmpty) ...[
+                  SizedBox(height: 6.h),
+                  Text(batch.description).muted(),
+                ],
+              ],
+            ),
+          ),
+          SizedBox(width: 12.w),
+          Wrap(
+            spacing: 8.w,
+            runSpacing: 8.h,
+            alignment: WrapAlignment.end,
+            children: [
+              if (running)
+                const PrimaryButton(
+                  onPressed: null,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: m.CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      ),
+                      SizedBox(width: 8),
+                      Text('执行中'),
+                    ],
+                  ),
+                )
+              else
+                PrimaryButton(
+                  onPressed: onExecute,
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.play_arrow, size: 16),
+                      SizedBox(width: 8),
+                      Text('运行'),
+                    ],
+                  ),
+                ),
+              OutlineButton(
+                onPressed: running ? null : onExecuteReuseLast,
+                child: const Text('沿用上次参数运行'),
+              ),
+              OutlineButton(
+                onPressed: running ? null : onEditBatch,
+                child: const Text('编辑批次'),
+              ),
+              OutlineButton(
+                onPressed: running ? null : onEditParams,
+                child: const Text('编辑参数'),
+              ),
+              if (ended)
+                OutlineButton(
+                  onPressed: controller.resetToPaused,
+                  child: const Text('重置为暂停'),
+                ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }
@@ -607,7 +882,7 @@ class _BatchMainArea extends StatefulWidget {
 }
 
 class _BatchMainAreaState extends State<_BatchMainArea> {
-  int _tabIndex = 0; // 0: 配置, 1: 日志, 2: 历史
+  int _tabIndex = 0; // 0: 概览, 1: 任务, 2: 参数, 3: 运行记录, 4: 设置
   String _lastStatus = '';
   String? _lastRunId;
   bool _autoSwitchArmed = true;
@@ -629,41 +904,50 @@ class _BatchMainAreaState extends State<_BatchMainArea> {
         _autoSwitchArmed = true;
       }
 
-      final shouldFocusLogs = running || selectedRun != null;
-      if (_autoSwitchArmed && shouldFocusLogs && _tabIndex == 0) {
+      final shouldFocusRuns = running || selectedRun != null;
+      if (_autoSwitchArmed && shouldFocusRuns && _tabIndex != 3) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (!mounted) return;
-          setState(() => _tabIndex = 1);
+          setState(() => _tabIndex = 3);
         });
         _autoSwitchArmed = false;
       }
 
-      final canEdit = widget.batch.status != BatchStatus.running;
-
       return Column(
         children: [
-          _HorizontalTaskProgressBar(entries: widget.entries),
           SizedBox(
-            height: 40.h,
+            height: 44.h,
             child: Row(
               children: [
                 _TabBtn(
-                  label: '配置',
-                  icon: Icons.tune,
+                  label: '概览',
+                  icon: Icons.dashboard,
                   isSelected: _tabIndex == 0,
                   onTap: () => setState(() => _tabIndex = 0),
                 ),
                 _TabBtn(
-                  label: '日志',
-                  icon: Icons.article,
+                  label: '任务',
+                  icon: Icons.playlist_play,
                   isSelected: _tabIndex == 1,
                   onTap: () => setState(() => _tabIndex = 1),
                 ),
                 _TabBtn(
-                  label: '历史记录',
-                  icon: Icons.history,
+                  label: '参数',
+                  icon: Icons.tune,
                   isSelected: _tabIndex == 2,
                   onTap: () => setState(() => _tabIndex = 2),
+                ),
+                _TabBtn(
+                  label: '运行记录',
+                  icon: Icons.article,
+                  isSelected: _tabIndex == 3,
+                  onTap: () => setState(() => _tabIndex = 3),
+                ),
+                _TabBtn(
+                  label: '设置',
+                  icon: Icons.settings,
+                  isSelected: _tabIndex == 4,
+                  onTap: () => setState(() => _tabIndex = 4),
                 ),
               ],
             ),
@@ -671,15 +955,20 @@ class _BatchMainAreaState extends State<_BatchMainArea> {
           const Divider(height: 1),
           Expanded(
             child: switch (_tabIndex) {
-              0 => _BatchConfigView(
+              0 => _BatchOverviewView(
                 batch: widget.batch,
                 control: widget.control,
                 managed: widget.managed,
                 entries: widget.entries,
-                canEdit: canEdit,
               ),
-              1 => _BatchLogArea(batch: widget.batch),
-              _ => _RunHistoryView(controller: controller),
+              1 => _BatchTasksView(entries: widget.entries),
+              2 => _BatchParametersView(
+                batch: widget.batch,
+                entries: widget.entries,
+                control: widget.control,
+              ),
+              3 => _BatchRunsView(batch: widget.batch, entries: widget.entries),
+              _ => _BatchSettingsView(batch: widget.batch),
             },
           ),
         ],
@@ -688,24 +977,268 @@ class _BatchMainAreaState extends State<_BatchMainArea> {
   }
 }
 
-class _BatchConfigView extends StatelessWidget {
+class _BatchOverviewView extends StatelessWidget {
   final Batch batch;
   final Server? control;
   final List<Server> managed;
   final List<_BatchTaskEntry> entries;
-  final bool canEdit;
 
-  const _BatchConfigView({
+  const _BatchOverviewView({
     required this.batch,
     required this.control,
     required this.managed,
     required this.entries,
-    required this.canEdit,
   });
 
   @override
   Widget build(BuildContext context) {
     final controller = Get.find<BatchesController>();
+    final lastRun = controller.lastRunByBatchId[batch.id];
+    final statusText = switch (batch.status) {
+      BatchStatus.running => '运行中',
+      BatchStatus.ended => '已结束',
+      BatchStatus.paused => '暂停',
+      _ => batch.status,
+    };
+    final lastRunText = lastRun == null
+        ? '暂无'
+        : '#${lastRun.seq} · ${formatDateTime(lastRun.startedAt)}';
+    final resultText = lastRun == null
+        ? '未执行'
+        : lastRun.result == RunResult.success
+        ? '成功'
+        : '失败';
+    final resultColor = lastRun == null
+        ? Theme.of(context).colorScheme.mutedForeground
+        : lastRun.result == RunResult.success
+        ? m.Colors.green
+        : m.Colors.red;
+
+    return ListView(
+      padding: EdgeInsets.all(16.r),
+      children: [
+        Wrap(
+          spacing: 12.w,
+          runSpacing: 12.h,
+          children: [
+            _SummaryCard(label: '状态', value: statusText),
+            _SummaryCard(label: '控制端', value: control?.name ?? 'Unknown'),
+            _SummaryCard(label: '被控端', value: '${managed.length} 台'),
+            _SummaryCard(label: '任务数', value: '${entries.length} 个'),
+            _SummaryCard(label: '最近运行', value: lastRunText),
+            _SummaryCard(
+              label: '最近结果',
+              value: resultText,
+              valueColor: resultColor,
+            ),
+          ],
+        ),
+        if (batch.description.trim().isNotEmpty) ...[
+          SizedBox(height: 16.h),
+          Card(
+            child: Padding(
+              padding: EdgeInsets.all(12.r),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('说明').p(),
+                  SizedBox(height: 6.h),
+                  Text(batch.description).muted(),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _SummaryCard extends StatelessWidget {
+  final String label;
+  final String value;
+  final Color? valueColor;
+
+  const _SummaryCard({
+    required this.label,
+    required this.value,
+    this.valueColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 220.w,
+      child: Card(
+        child: Padding(
+          padding: EdgeInsets.all(12.r),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label).muted(),
+              SizedBox(height: 6.h),
+              Text(
+                value,
+                style: TextStyle(
+                  fontSize: 16.sp,
+                  fontWeight: FontWeight.w600,
+                  color: valueColor,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _BatchTasksView extends StatelessWidget {
+  final List<_BatchTaskEntry> entries;
+
+  const _BatchTasksView({required this.entries});
+
+  @override
+  Widget build(BuildContext context) {
+    if (entries.isEmpty) {
+      return const Center(child: Text('暂无任务'));
+    }
+    return ListView.separated(
+      padding: EdgeInsets.all(16.r),
+      itemCount: entries.length,
+      separatorBuilder: (context, index) => SizedBox(height: 8.h),
+      itemBuilder: (context, index) {
+        final entry = entries[index];
+        final task = entry.task;
+        final tags = <String>[
+          task.isAnsiblePlaybook ? 'Playbook' : '脚本',
+          '文件槽位 ${task.fileSlots.length}',
+          '变量 ${task.variables.length}',
+          if (!entry.item.enabled) '禁用',
+        ];
+        return Card(
+          child: Padding(
+            padding: EdgeInsets.all(12.r),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text('${index + 1}.').muted(),
+                    SizedBox(width: 8.w),
+                    Expanded(
+                      child: Text(
+                        entry.displayName,
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ],
+                ),
+                if (task.description.trim().isNotEmpty) ...[
+                  SizedBox(height: 6.h),
+                  Text(task.description).muted(),
+                ],
+                SizedBox(height: 8.h),
+                Wrap(
+                  spacing: 8.w,
+                  runSpacing: 8.h,
+                  children: [for (final t in tags) _Tag(text: t)],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _Tag extends StatelessWidget {
+  final String text;
+
+  const _Tag({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: 8.w, vertical: 4.h),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.muted,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Theme.of(context).colorScheme.border),
+      ),
+      child: Text(text, style: TextStyle(fontSize: 12.sp)),
+    );
+  }
+}
+
+class _BatchParametersView extends StatelessWidget {
+  final Batch batch;
+  final List<_BatchTaskEntry> entries;
+  final Server? control;
+
+  const _BatchParametersView({
+    required this.batch,
+    required this.entries,
+    required this.control,
+  });
+
+  String _formatFileInputs(BatchTaskInputs inputs) {
+    if (inputs.fileInputs.isEmpty) return '文件：未设置';
+    final parts = <String>[];
+    for (final e in inputs.fileInputs.entries) {
+      parts.add('${e.key}(${e.value.length})');
+      if (parts.length >= 3) break;
+    }
+    return '文件：${parts.join(', ')}';
+  }
+
+  String _formatVars(BatchTaskInputs inputs) {
+    if (inputs.vars.isEmpty) return '变量：未设置';
+    final parts = <String>[];
+    for (final e in inputs.vars.entries) {
+      if (e.key == 'python') continue;
+      if (e.value.trim().isEmpty) continue;
+      parts.add('${e.key}=${e.value}');
+      if (parts.length >= 3) break;
+    }
+    if (parts.isEmpty) return '变量：未设置';
+    return '变量：${parts.join(', ')}';
+  }
+
+  String _formatRunFiles(TaskRunResult? result) {
+    final inputs = result?.fileInputs;
+    if (inputs == null || inputs.isEmpty) return '文件：未记录';
+    final parts = <String>[];
+    for (final e in inputs.entries) {
+      parts.add('${e.key}(${e.value.length})');
+      if (parts.length >= 3) break;
+    }
+    return '文件：${parts.join(', ')}';
+  }
+
+  String _formatRunVars(TaskRunResult? result) {
+    final vars = result?.vars;
+    if (vars == null || vars.isEmpty) return '变量：未记录';
+    final parts = <String>[];
+    for (final e in vars.entries) {
+      if (e.key == 'python') continue;
+      if (e.value.trim().isEmpty) continue;
+      parts.add('${e.key}=${e.value}');
+      if (parts.length >= 3) break;
+    }
+    if (parts.isEmpty) return '变量：未记录';
+    return '变量：${parts.join(', ')}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = Get.find<BatchesController>();
+    final running = batch.status == BatchStatus.running;
+    final run = controller.selectedRun;
+    final showingRun = run != null;
+    final canEdit = !running && !showingRun;
+
     return Column(
       children: [
         Container(
@@ -717,8 +1250,16 @@ class _BatchConfigView extends StatelessWidget {
           ),
           child: Row(
             children: [
-              const Text('任务与参数').p(),
+              Text(showingRun ? '任务参数（运行快照 #${run.seq}）' : '任务参数（批次配置）').p(),
               const Spacer(),
+              if (showingRun)
+                GhostButton(
+                  onPressed: () {
+                    controller.userPinnedRun.value = false;
+                    controller.selectedRunId.value = null;
+                  },
+                  child: const Text('查看批次配置'),
+                ),
               if (canEdit)
                 OutlineButton(
                   onPressed: () async {
@@ -741,16 +1282,117 @@ class _BatchConfigView extends StatelessWidget {
                   },
                   child: const Text('编辑参数'),
                 ),
+              SizedBox(width: 8.w),
+              GhostButton(
+                onPressed: () async {
+                  if (!context.mounted) return;
+                  await showDialog<void>(
+                    context: context,
+                    builder: (context) => _BatchSnapshotsDialog(
+                      batch: batch,
+                      entries: entries,
+                      control: control,
+                    ),
+                  );
+                },
+                child: const Text('参数快照'),
+              ),
             ],
           ),
         ),
         Expanded(
-          child: _TaskProgressView(
-            batch: batch,
-            control: control,
-            managed: managed,
-            entries: entries,
-            forceConfig: true,
+          child: entries.isEmpty
+              ? const Center(child: Text('暂无任务'))
+              : ListView.separated(
+                  padding: EdgeInsets.all(12.r),
+                  itemCount: entries.length,
+                  separatorBuilder: (context, index) =>
+                      const Divider(height: 1),
+                  itemBuilder: (context, i) {
+                    final entry = entries[i];
+                    final inputs = entry.item.inputs;
+                    final result = (run != null && i < run.taskResults.length)
+                        ? run.taskResults[i]
+                        : null;
+                    return m.ListTile(
+                      title: Text(entry.displayName),
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            showingRun
+                                ? _formatRunFiles(result)
+                                : _formatFileInputs(inputs),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ).muted(),
+                          Text(
+                            showingRun
+                                ? _formatRunVars(result)
+                                : _formatVars(inputs),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ).muted(),
+                        ],
+                      ),
+                      trailing: canEdit
+                          ? GhostButton(
+                              density: ButtonDensity.icon,
+                              onPressed: () async {
+                                final inputs = await showDialog<RunInputs>(
+                                  context: context,
+                                  builder: (context) => _BatchInputsDialog(
+                                    entries: [entry],
+                                    actionLabel: '保存参数',
+                                    enforceRequired: false,
+                                  ),
+                                );
+                                if (inputs == null) return;
+                                try {
+                                  await controller.updateBatchTaskInputs(
+                                    batch,
+                                    inputs,
+                                  );
+                                } on AppException catch (e) {
+                                  if (context.mounted) {
+                                    await showAppErrorDialog(context, e);
+                                  }
+                                }
+                              },
+                              child: const Icon(Icons.edit, size: 16),
+                            )
+                          : null,
+                    );
+                  },
+                ),
+        ),
+      ],
+    );
+  }
+}
+
+class _BatchRunsView extends StatelessWidget {
+  final Batch batch;
+  final List<_BatchTaskEntry> entries;
+
+  const _BatchRunsView({required this.batch, required this.entries});
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = Get.find<BatchesController>();
+    return Row(
+      children: [
+        SizedBox(
+          width: 320.w,
+          child: _RunHistoryView(controller: controller),
+        ),
+        const VerticalDivider(width: 1),
+        Expanded(
+          child: Column(
+            children: [
+              _HorizontalTaskProgressBar(entries: entries),
+              Expanded(child: _BatchLogArea(batch: batch)),
+            ],
           ),
         ),
       ],
@@ -758,246 +1400,42 @@ class _BatchConfigView extends StatelessWidget {
   }
 }
 
-class _BatchSidebar extends StatefulWidget {
+class _BatchSettingsView extends StatelessWidget {
   final Batch batch;
-  final Server? control;
-  final List<Server> managed;
-  final List<_BatchTaskEntry> entries;
 
-  const _BatchSidebar({
-    required this.batch,
-    required this.control,
-    required this.managed,
-    required this.entries,
-  });
+  const _BatchSettingsView({required this.batch});
 
-  @override
-  State<_BatchSidebar> createState() => _BatchSidebarState();
-}
-
-class _BatchSidebarState extends State<_BatchSidebar> {
   @override
   Widget build(BuildContext context) {
     final controller = Get.find<BatchesController>();
+    final running = batch.status == BatchStatus.running;
+    final ended = batch.status == BatchStatus.ended;
 
-    void onEdit() async {
-      final updated = await showDialog<Batch>(
-        context: context,
-        builder: (context) => _BatchEditDialog(
-          initial: widget.batch,
-          servers: controller.servers,
-          tasks: controller.tasks,
-        ),
-      );
-      if (updated != null) {
-        try {
-          await controller.upsertBatch(updated);
-        } on AppException catch (e) {
-          if (context.mounted) {
-            await showAppErrorDialog(context, e);
-          }
-        }
-      }
-    }
-
-    Future<void> onExecute() async {
-      final inputs = await showDialog<RunInputs>(
-        context: context,
-        builder: (context) => _BatchInputsDialog(entries: widget.entries),
-      );
-      if (inputs == null) return;
-      try {
-        await controller.startRunWithInputs(inputs);
-      } on AppException catch (e) {
-        if (e.code == AppErrorCode.validation &&
-            e.message.contains('检测到控制端环境不支持')) {
-          if (!context.mounted) return;
-          final allow = await _maybeConfirmUnsupportedControlAutoInstall(
-            context,
-            widget.control!,
-          );
-          if (allow == true) {
-            await controller.startRunWithInputs(
-              inputs,
-              allowUnsupportedControlOsAutoInstall: true,
-            );
-          }
-        } else {
-          if (context.mounted) {
-            await showAppErrorDialog(context, e);
-          }
-        }
-      }
-    }
-
-    Future<void> onExecuteReuseLast() async {
-      var inputs = await controller.readLastInputs(widget.batch.id);
-      if (inputs == null) {
-        if (context.mounted) {
-          showDialog(
-            context: context,
-            builder: (context) => const AlertDialog(
-              title: Text('无上次输入'),
-              content: Text('未找到上次执行的输入记录，请使用“选择输入并执行”。'),
-            ),
-          );
-        }
-        return;
-      }
-
-      if (!context.mounted) return;
-      final check = await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('确认沿用上次输入？'),
-          content: const Text('将使用上次的文件参数和变量直接开始执行。'),
-          actions: [
-            OutlineButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('取消'),
-            ),
-            PrimaryButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('执行'),
-            ),
-          ],
-        ),
-      );
-      if (!context.mounted) return;
-      if (check != true) return;
-
-      try {
-        await controller.startRunWithInputs(inputs);
-      } on AppException catch (e) {
-        if (e.code == AppErrorCode.validation &&
-            e.message.contains('检测到控制端环境不支持')) {
-          if (context.mounted) {
-            final allow = await _maybeConfirmUnsupportedControlAutoInstall(
-              context,
-              widget.control!,
-            );
-            if (allow == true) {
-              await controller.startRunWithInputs(
-                inputs,
-                allowUnsupportedControlOsAutoInstall: true,
-              );
-            }
-          }
-        } else {
-          if (context.mounted) {
-            await showAppErrorDialog(context, e);
-          }
-        }
-      }
-    }
-
-    Future<void> onSnapshots() async {
-      if (!context.mounted) return;
-      await showDialog<void>(
-        context: context,
-        builder: (context) => _BatchSnapshotsDialog(
-          batch: widget.batch,
-          entries: widget.entries,
-          control: widget.control,
-        ),
-      );
-    }
-
-    final paused = widget.batch.status == BatchStatus.paused;
-    final running = widget.batch.status == BatchStatus.running;
-    final ended = widget.batch.status == BatchStatus.ended;
-
-    return Column(
+    return ListView(
+      padding: EdgeInsets.all(16.r),
       children: [
-        // Header Actions
-        Container(
-          padding: EdgeInsets.all(12.r),
-          decoration: BoxDecoration(
-            border: Border(
-              bottom: BorderSide(color: Theme.of(context).colorScheme.border),
-            ),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      widget.batch.name,
-                      style: m.Theme.of(context).textTheme.titleLarge,
-                    ),
-                  ),
-                  if (paused)
-                    GhostButton(
-                      density: ButtonDensity.icon,
-                      onPressed: onEdit,
-                      child: const Icon(Icons.edit, size: 16),
-                    ),
-                ],
-              ),
-              SizedBox(height: 12.h),
-              if (paused) ...[
-                PrimaryButton(
-                  onPressed: onExecute,
-                  child: const Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.play_arrow, size: 16),
-                      SizedBox(width: 8),
-                      Text('运行'),
-                    ],
-                  ),
-                ),
-                SizedBox(height: 8.h),
+        Text('运行控制', style: m.Theme.of(context).textTheme.titleMedium),
+        SizedBox(height: 8.h),
+        Card(
+          child: Padding(
+            padding: EdgeInsets.all(12.r),
+            child: Wrap(
+              spacing: 8.w,
+              runSpacing: 8.h,
+              children: [
                 OutlineButton(
-                  onPressed: onExecuteReuseLast,
-                  child: const Text('沿用上次参数运行'),
+                  onPressed: ended ? controller.resetToPaused : null,
+                  child: const Text('重置为暂停'),
                 ),
-                SizedBox(height: 8.h),
-                OutlineButton(
-                  onPressed: onSnapshots,
-                  child: const Text('参数快照'),
-                ),
-              ] else if (running) ...[
-                const PrimaryButton(
-                  onPressed: null,
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      SizedBox(
-                        width: 14,
-                        height: 14,
-                        child: m.CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
-                      ),
-                      SizedBox(width: 8),
-                      Text('执行中'),
-                    ],
-                  ),
-                ),
-              ] else if (ended) ...[
-                OutlineButton(
-                  onPressed: controller.resetToPaused,
-                  child: const Text('重置为暂停 (Reset)'),
-                ),
-              ],
-
-              if (!paused) ...[
-                SizedBox(height: 12.h),
-                Row(
-                  children: [
-                    Expanded(
-                      child: DestructiveButton(
-                        onPressed: () async {
+                DestructiveButton(
+                  onPressed: running
+                      ? () async {
                           final ok = await showDialog<bool>(
                             context: context,
                             builder: (context) => AlertDialog(
                               title: const Text('强制解锁？'),
                               content: const Text(
-                                '警告：这将强制释放文件锁并将状态置为 Paused。\n请确保后台没有残留进程（如 Ansible），否则可能导致并发冲突。',
+                                '警告：这将强制释放文件锁并将状态置为暂停。\\n请确保后台没有残留进程（如 Ansible），否则可能导致并发冲突。',
                               ),
                               actions: [
                                 OutlineButton(
@@ -1022,57 +1460,64 @@ class _BatchSidebarState extends State<_BatchSidebar> {
                               }
                             }
                           }
-                        },
-                        child: const Text('强制解锁'),
-                      ),
-                    ),
-                  ],
+                        }
+                      : null,
+                  child: const Text('强制解锁'),
                 ),
               ],
-            ],
+            ),
           ),
         ),
-        const Spacer(),
-
-        // Bottom Actions (Delete Batch)
-        if (paused)
-          Container(
+        SizedBox(height: 16.h),
+        Text('危险操作', style: m.Theme.of(context).textTheme.titleMedium),
+        SizedBox(height: 8.h),
+        Card(
+          child: Padding(
             padding: EdgeInsets.all(12.r),
-            decoration: BoxDecoration(
-              border: Border(
-                top: BorderSide(color: Theme.of(context).colorScheme.border),
-              ),
-            ),
-            child: SecondaryButton(
-              onPressed: () async {
-                final ok = await showDialog<bool>(
-                  context: context,
-                  builder: (context) => AlertDialog(
-                    title: const Text('删除批次'),
-                    content: Text('确认删除批次 "${widget.batch.name}"？此操作不可恢复。'),
-                    actions: [
-                      OutlineButton(
-                        onPressed: () => Navigator.of(context).pop(false),
-                        child: const Text('取消'),
-                      ),
-                      DestructiveButton(
-                        onPressed: () => Navigator.of(context).pop(true),
-                        child: const Text('删除'),
-                      ),
-                    ],
-                  ),
-                );
-                if (ok == true) {
-                  try {
-                    await controller.deleteSelectedBatch();
-                  } catch (e) {
-                    // ignore
-                  }
-                }
-              },
-              child: const Text('删除批次'),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    running ? '运行中不可删除批次。' : '删除后不可恢复，请谨慎操作。',
+                  ).muted(),
+                ),
+                DestructiveButton(
+                  onPressed: running
+                      ? null
+                      : () async {
+                          final ok = await showDialog<bool>(
+                            context: context,
+                            builder: (context) => AlertDialog(
+                              title: const Text('删除批次'),
+                              content: Text('确认删除批次 "${batch.name}"？此操作不可恢复。'),
+                              actions: [
+                                OutlineButton(
+                                  onPressed: () =>
+                                      Navigator.of(context).pop(false),
+                                  child: const Text('取消'),
+                                ),
+                                DestructiveButton(
+                                  onPressed: () =>
+                                      Navigator.of(context).pop(true),
+                                  child: const Text('删除'),
+                                ),
+                              ],
+                            ),
+                          );
+                          if (ok == true) {
+                            try {
+                              await controller.deleteSelectedBatch();
+                            } catch (e) {
+                              // ignore
+                            }
+                          }
+                        },
+                  child: const Text('删除批次'),
+                ),
+              ],
             ),
           ),
+        ),
       ],
     );
   }
@@ -1145,185 +1590,6 @@ class _TabBtn extends StatelessWidget {
             ),
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _TaskProgressView extends StatelessWidget {
-  final Batch batch;
-  final Server? control;
-  final List<Server> managed;
-  final List<_BatchTaskEntry> entries;
-  final bool forceConfig;
-
-  const _TaskProgressView({
-    required this.batch,
-    required this.control,
-    required this.managed,
-    required this.entries,
-    this.forceConfig = false,
-  });
-
-  String _formatFileInputs(BatchTaskInputs inputs) {
-    if (inputs.fileInputs.isEmpty) return '文件：未设置';
-    final parts = <String>[];
-    for (final e in inputs.fileInputs.entries) {
-      parts.add('${e.key}(${e.value.length})');
-      if (parts.length >= 3) break;
-    }
-    return '文件：${parts.join(', ')}';
-  }
-
-  String _formatVars(BatchTaskInputs inputs) {
-    if (inputs.vars.isEmpty) return '变量：未设置';
-    final parts = <String>[];
-    for (final e in inputs.vars.entries) {
-      if (e.key == 'python') continue;
-      if (e.value.trim().isEmpty) continue;
-      parts.add('${e.key}=${e.value}');
-      if (parts.length >= 3) break;
-    }
-    if (parts.isEmpty) return '变量：未设置';
-    return '变量：${parts.join(', ')}';
-  }
-
-  String _formatRunFiles(TaskRunResult? result) {
-    final inputs = result?.fileInputs;
-    if (inputs == null || inputs.isEmpty) return '文件：未记录';
-    final parts = <String>[];
-    for (final e in inputs.entries) {
-      parts.add('${e.key}(${e.value.length})');
-      if (parts.length >= 3) break;
-    }
-    return '文件：${parts.join(', ')}';
-  }
-
-  String _formatRunVars(TaskRunResult? result) {
-    final vars = result?.vars;
-    if (vars == null || vars.isEmpty) return '变量：未记录';
-    final parts = <String>[];
-    for (final e in vars.entries) {
-      if (e.key == 'python') continue;
-      if (e.value.trim().isEmpty) continue;
-      parts.add('${e.key}=${e.value}');
-      if (parts.length >= 3) break;
-    }
-    if (parts.isEmpty) return '变量：未记录';
-    return '变量：${parts.join(', ')}';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final controller = Get.find<BatchesController>();
-    final running = batch.status == BatchStatus.running;
-    final run = forceConfig ? null : controller.selectedRun;
-    final showingRun = run != null;
-    final canEdit = !running && !showingRun;
-    return Padding(
-      padding: EdgeInsets.all(12.r),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _InfoItem(
-            label: '控制端',
-            value: control?.name ?? 'Unknown',
-            icon: Icons.computer,
-          ),
-          _InfoItem(
-            label: 'Python（固定）',
-            value: kRemotePythonPath,
-            icon: Icons.code,
-          ),
-          _InfoItem(
-            label: '被控端',
-            value: '${managed.length} 台',
-            icon: Icons.lan,
-          ),
-          _InfoItem(
-            label: 'Task 数',
-            value: '${entries.length} 个',
-            icon: Icons.task,
-          ),
-          SizedBox(height: 12.h),
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  showingRun ? '任务参数（运行快照 #${run.seq}）' : '任务参数（批次配置）',
-                ),
-              ),
-              if (canEdit) Text('可编辑').muted(),
-              if (showingRun) Text('只读').muted(),
-            ],
-          ),
-          SizedBox(height: 8.h),
-          Expanded(
-            child: entries.isEmpty
-                ? const Center(child: Text('暂无任务'))
-                : ListView.separated(
-                    itemCount: entries.length,
-                    separatorBuilder: (context, index) =>
-                        const Divider(height: 1),
-                    itemBuilder: (context, i) {
-                      final entry = entries[i];
-                      final inputs = entry.item.inputs;
-                      final result = (run != null && i < run.taskResults.length)
-                          ? run.taskResults[i]
-                          : null;
-                      return m.ListTile(
-                        title: Text(entry.displayName),
-                        subtitle: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'task_id=${entry.task.id.substring(0, 8)}  item_id=${entry.item.id.substring(0, 8)}',
-                            ).muted(),
-                            SizedBox(height: 2.h),
-                            Text(
-                              showingRun
-                                  ? _formatRunFiles(result)
-                                  : _formatFileInputs(inputs),
-                            ).muted(),
-                            Text(
-                              showingRun
-                                  ? _formatRunVars(result)
-                                  : _formatVars(inputs),
-                            ).muted(),
-                          ],
-                        ),
-                        trailing: canEdit
-                            ? GhostButton(
-                                density: ButtonDensity.icon,
-                                onPressed: () async {
-                                  final inputs = await showDialog<RunInputs>(
-                                    context: context,
-                                    builder: (context) => _BatchInputsDialog(
-                                      entries: [entry],
-                                      actionLabel: '保存参数',
-                                      enforceRequired: false,
-                                    ),
-                                  );
-                                  if (inputs == null) return;
-                                  try {
-                                    await controller.updateBatchTaskInputs(
-                                      batch,
-                                      inputs,
-                                    );
-                                  } on AppException catch (e) {
-                                    if (context.mounted) {
-                                      await showAppErrorDialog(context, e);
-                                    }
-                                  }
-                                },
-                                child: const Icon(Icons.edit, size: 16),
-                              )
-                            : null,
-                      );
-                    },
-                  ),
-          ),
-        ],
       ),
     );
   }
@@ -1486,48 +1752,6 @@ class _RunHistoryView extends StatelessWidget {
       RunResult.failed => m.Colors.red,
       _ => m.Colors.grey,
     };
-  }
-}
-
-class _InfoItem extends StatelessWidget {
-  final String label;
-  final String value;
-  final IconData icon;
-
-  const _InfoItem({
-    required this.label,
-    required this.value,
-    required this.icon,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: EdgeInsets.symmetric(vertical: 4.h),
-      child: Row(
-        children: [
-          Icon(
-            icon,
-            size: 14,
-            color: Theme.of(context).colorScheme.mutedForeground,
-          ),
-          SizedBox(width: 8.w),
-          Text(
-            '$label:',
-            style: TextStyle(
-              color: Theme.of(context).colorScheme.mutedForeground,
-            ),
-          ),
-          SizedBox(width: 8.w),
-          Expanded(
-            child: Text(
-              value,
-              style: const TextStyle(fontWeight: FontWeight.w500),
-            ),
-          ),
-        ],
-      ),
-    );
   }
 }
 
@@ -2709,6 +2933,9 @@ class _BatchInputsDialogState extends State<_BatchInputsDialog> {
                                     ? null
                                     : v.description.trim(),
                               ),
+                              minLines: 1,
+                              maxLines: 3,
+                              keyboardType: m.TextInputType.multiline,
                               onChanged: (_) => setState(() {}),
                             ),
                             SizedBox(height: 8.h),

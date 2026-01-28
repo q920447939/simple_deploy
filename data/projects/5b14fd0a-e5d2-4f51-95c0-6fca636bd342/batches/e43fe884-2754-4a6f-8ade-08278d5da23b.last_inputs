@@ -24,7 +24,7 @@
       "file_mode": "0644"
     },
     "3a63facd-03fc-4e1d-8e7c-2f868615df8a": {
-      "port": "8080",
+      "port": "18080",
       "java_cmd": "java -jar /home/firework/firework_admin_back/firework-admin-back-0.1.0.jar",
       "work_dir": "/home/firework/firework_admin_back",
       "log_path": "/home/firework/firework_admin_back/app.log",

@@ -2,7 +2,7 @@
   "id": "e43fe884-2754-4a6f-8ade-08278d5da23b",
   "name": "firework deploy",
   "description": "",
-  "status": "paused",
+  "status": "ended",
   "control_server_id": "adf11357-0ebb-403e-b0bd-3fd736336afe",
   "managed_server_ids": [
     "e8514cbc-e56b-476c-a31c-5fd02dd4e3e6"
@@ -47,8 +47,7 @@
         "vars": {
           "remote_dest_dir": "/home/firework/firework_admin_back",
           "dest_name": "firework-admin-back-0.1.0.jar",
-          "file_mode": "0644",
-          "python": "/usr/local/bin/python3.12"
+          "file_mode": "0644"
         }
       }
     },
@@ -59,13 +58,19 @@
       "enabled": true,
       "inputs": {
         "file_inputs": {},
-        "vars": {}
+        "vars": {
+          "port": "18080",
+          "java_cmd": "java -jar /home/firework/firework_admin_back/firework-admin-back-0.1.0.jar",
+          "work_dir": "/home/firework/firework_admin_back",
+          "log_path": "/home/firework/firework_admin_back/app.log",
+          "signal": "9"
+        }
       }
     }
   ],
   "created_at": "2026-01-21T15:55:21.993279",
-  "updated_at": "2026-01-28T15:09:53.383343",
-  "last_run_id": "ae33334e-3d32-4f78-842a-7a26008c204d",
+  "updated_at": "2026-01-28T17:26:00.982423",
+  "last_run_id": "62511848-d8a5-4637-b9bd-ce66985ac341",
   "python_path": "/usr/local/bin/python3.12",
-  "run_seq": 13
+  "run_seq": 14
 }

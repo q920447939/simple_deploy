@@ -391,12 +391,12 @@ class BatchesController extends GetxController {
     final pid = projectId;
     if (pid == null) return;
     final existing = await AppServices.I.batchesStore(pid).getById(batch.id);
-    if (existing != null && existing.status != BatchStatus.paused) {
+    if (existing != null && existing.status == BatchStatus.running) {
       throw const AppException(
         code: AppErrorCode.validation,
         title: '批次不可编辑',
-        message: '仅 paused 状态允许编辑批次配置。',
-        suggestion: '先将批次重置为 paused 后再编辑。',
+        message: '批次运行中，暂不可编辑配置。',
+        suggestion: '请等待运行结束后再编辑。',
       );
     }
     await AppServices.I.batchesStore(pid).upsert(batch);
@@ -690,12 +690,12 @@ class BatchesController extends GetxController {
     final pid = projectId;
     final batch = selectedBatch;
     if (pid == null || batch == null) return;
-    if (batch.status != BatchStatus.paused) {
+    if (batch.status == BatchStatus.running) {
       throw const AppException(
         code: AppErrorCode.validation,
         title: '批次不可执行',
-        message: '仅 paused 状态允许执行。',
-        suggestion: '若已 ended，请先“重置为暂停”；若仍 running，请等待或使用“强制解锁/重置”。',
+        message: '批次运行中，暂不可重复执行。',
+        suggestion: '请等待运行结束后再执行。',
       );
     }
 
@@ -764,12 +764,12 @@ class BatchesController extends GetxController {
   Future<void> updateBatchTaskInputs(Batch batch, RunInputs inputs) async {
     final pid = projectId;
     if (pid == null) return;
-    if (batch.status != BatchStatus.paused) {
+    if (batch.status == BatchStatus.running) {
       throw const AppException(
         code: AppErrorCode.validation,
         title: '批次不可编辑',
-        message: '仅 paused 状态允许更新任务参数。',
-        suggestion: '请先将批次重置为 paused。',
+        message: '批次运行中，暂不可更新任务参数。',
+        suggestion: '请等待运行结束后再编辑。',
       );
     }
     await _applyInputsToBatch(batch, inputs);
