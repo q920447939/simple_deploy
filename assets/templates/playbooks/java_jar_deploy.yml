@@ -5,7 +5,6 @@
   vars:
     app_name: "app"
     deploy_dir: "/opt/apps"
-    ansible_python_interpreter: "{{ python | default('/usr/bin/python3') }}"
 
   tasks:
     - name: Ensure deploy directory exists

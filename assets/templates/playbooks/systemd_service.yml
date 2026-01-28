@@ -6,7 +6,6 @@
     service_name: "my-service"
     service_state: "restarted"
     enabled: "true"
-    ansible_python_interpreter: "{{ python | default('/usr/bin/python3') }}"
 
   tasks:
     - name: Ensure service state

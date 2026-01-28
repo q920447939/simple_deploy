@@ -1,8 +1,8 @@
 [
   {
     "id": "f1f1c8b9-4d29-4136-b025-004bf3670f6f",
-    "name": "Maven 打包（跳过测试）",
-    "description": "mvn package -DskipTests，并复制产物到指定路径",
+    "name": "Maven \u6253\u5305\uff08\u8df3\u8fc7\u6d4b\u8bd5\uff09",
+    "description": "mvn package -DskipTests\uff0c\u5e76\u590d\u5236\u4ea7\u7269\u5230\u6307\u5b9a\u8def\u5f84",
     "type": "local_script",
     "playbook_id": null,
     "script": {
@@ -13,25 +13,25 @@
     "variables": [
       {
         "name": "project_dir",
-        "description": "项目根目录",
+        "description": "\u9879\u76ee\u6839\u76ee\u5f55",
         "default": "/path/to/project",
         "required": true
       },
       {
         "name": "artifact_glob",
-        "description": "产物匹配（相对 project_dir）",
+        "description": "\u4ea7\u7269\u5339\u914d\uff08\u76f8\u5bf9 project_dir\uff09",
         "default": "target/*.jar",
         "required": true
       },
       {
         "name": "output_path",
-        "description": "产物复制路径（绝对路径）",
+        "description": "\u4ea7\u7269\u590d\u5236\u8def\u5f84\uff08\u7edd\u5bf9\u8def\u5f84\uff09",
         "default": "/tmp/simple_deploy_artifacts/app.jar",
         "required": true
       },
       {
         "name": "maven_cmd",
-        "description": "mvn 命令",
+        "description": "mvn \u547d\u4ee4",
         "default": "mvn",
         "required": false
       }
@@ -45,8 +45,8 @@
   },
   {
     "id": "1afa62bf-13ad-4f2c-aafa-5cf2ffb4273a",
-    "name": "上传文件到目录（保持原名）",
-    "description": "将文件传输到指定目录，目录不存在自动创建",
+    "name": "\u4e0a\u4f20\u6587\u4ef6\u5230\u76ee\u5f55\uff08\u4fdd\u6301\u539f\u540d\uff09",
+    "description": "\u5c06\u6587\u4ef6\u4f20\u8f93\u5230\u6307\u5b9a\u76ee\u5f55\uff0c\u76ee\u5f55\u4e0d\u5b58\u5728\u81ea\u52a8\u521b\u5efa",
     "type": "ansible_playbook",
     "playbook_id": "3df51c2d-842a-48f5-bcc1-56557c88902a",
     "script": null,
@@ -60,20 +60,14 @@
     "variables": [
       {
         "name": "remote_dest_dir",
-        "description": "目标目录",
+        "description": "\u76ee\u6807\u76ee\u5f55",
         "default": "/opt/app",
         "required": true
       },
       {
         "name": "file_mode",
-        "description": "文件权限",
+        "description": "\u6587\u4ef6\u6743\u9650",
         "default": "0644",
-        "required": false
-      },
-      {
-        "name": "python",
-        "description": "远程 python 路径",
-        "default": "/usr/bin/python3",
         "required": false
       }
     ],
@@ -81,8 +75,8 @@
   },
   {
     "id": "395f9a24-b9ef-468e-a2b3-ab40a1a28a3e",
-    "name": "Kill 端口后启动 Java",
-    "description": "按端口强制 kill 后启动 Java 程序",
+    "name": "Kill \u7aef\u53e3\u540e\u542f\u52a8 Java",
+    "description": "\u6309\u7aef\u53e3\u5f3a\u5236 kill \u540e\u542f\u52a8 Java \u7a0b\u5e8f",
     "type": "ansible_playbook",
     "playbook_id": "fb49b707-6274-4fac-8abb-373323cd7df2",
     "script": null,
@@ -90,38 +84,32 @@
     "variables": [
       {
         "name": "port",
-        "description": "端口号",
+        "description": "\u7aef\u53e3\u53f7",
         "default": "8080",
         "required": true
       },
       {
         "name": "java_cmd",
-        "description": "Java 启动命令",
+        "description": "Java \u542f\u52a8\u547d\u4ee4",
         "default": "java -jar /opt/app/app.jar",
         "required": true
       },
       {
         "name": "work_dir",
-        "description": "工作目录",
+        "description": "\u5de5\u4f5c\u76ee\u5f55",
         "default": "/opt/app",
         "required": true
       },
       {
         "name": "log_path",
-        "description": "日志路径",
+        "description": "\u65e5\u5fd7\u8def\u5f84",
         "default": "/opt/app/app.log",
         "required": false
       },
       {
         "name": "signal",
-        "description": "信号（默认 9）",
+        "description": "\u4fe1\u53f7\uff08\u9ed8\u8ba4 9\uff09",
         "default": "9",
-        "required": false
-      },
-      {
-        "name": "python",
-        "description": "远程 python 路径",
-        "default": "/usr/bin/python3",
         "required": false
       }
     ],
@@ -129,8 +117,8 @@
   },
   {
     "id": "303ef8a4-6316-48c7-abe7-eb5d1063f853",
-    "name": "上传文件到目录（指定文件名）",
-    "description": "将文件传输到指定目录并重命名",
+    "name": "\u4e0a\u4f20\u6587\u4ef6\u5230\u76ee\u5f55\uff08\u6307\u5b9a\u6587\u4ef6\u540d\uff09",
+    "description": "\u5c06\u6587\u4ef6\u4f20\u8f93\u5230\u6307\u5b9a\u76ee\u5f55\u5e76\u91cd\u547d\u540d",
     "type": "ansible_playbook",
     "playbook_id": "59748124-d1db-4c4d-91db-8d2fed3373b6",
     "script": null,
@@ -144,26 +132,20 @@
     "variables": [
       {
         "name": "remote_dest_dir",
-        "description": "目标目录",
+        "description": "\u76ee\u6807\u76ee\u5f55",
         "default": "/opt/app",
         "required": true
       },
       {
         "name": "dest_name",
-        "description": "目标文件名",
+        "description": "\u76ee\u6807\u6587\u4ef6\u540d",
         "default": "app.bin",
         "required": true
       },
       {
         "name": "file_mode",
-        "description": "文件权限",
+        "description": "\u6587\u4ef6\u6743\u9650",
         "default": "0644",
-        "required": false
-      },
-      {
-        "name": "python",
-        "description": "远程 python 路径",
-        "default": "/usr/bin/python3",
         "required": false
       }
     ],

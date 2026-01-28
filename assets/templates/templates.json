@@ -1,8 +1,8 @@
 [
   {
     "id": "tpl_maven_package_skip_tests",
-    "name": "Maven 打包（跳过测试）",
-    "description": "mvn package -DskipTests，并复制产物到指定路径",
+    "name": "Maven \u6253\u5305\uff08\u8df3\u8fc7\u6d4b\u8bd5\uff09",
+    "description": "mvn package -DskipTests\uff0c\u5e76\u590d\u5236\u4ea7\u7269\u5230\u6307\u5b9a\u8def\u5f84",
     "type": "local_script",
     "script": {
       "shell": "bash",
@@ -12,37 +12,40 @@
     "variables": [
       {
         "name": "project_dir",
-        "description": "项目根目录",
+        "description": "\u9879\u76ee\u6839\u76ee\u5f55",
         "default": "/path/to/project",
         "required": true
       },
       {
         "name": "artifact_glob",
-        "description": "产物匹配（相对 project_dir）",
+        "description": "\u4ea7\u7269\u5339\u914d\uff08\u76f8\u5bf9 project_dir\uff09",
         "default": "target/*.jar",
         "required": true
       },
       {
         "name": "output_path",
-        "description": "产物复制路径（绝对路径）",
+        "description": "\u4ea7\u7269\u590d\u5236\u8def\u5f84\uff08\u7edd\u5bf9\u8def\u5f84\uff09",
         "default": "/tmp/simple_deploy_artifacts/app.jar",
         "required": true
       },
       {
         "name": "maven_cmd",
-        "description": "mvn 命令",
+        "description": "mvn \u547d\u4ee4",
         "default": "mvn",
         "required": false
       }
     ],
     "outputs": [
-      {"name": "artifact", "path": "${output_path}"}
+      {
+        "name": "artifact",
+        "path": "${output_path}"
+      }
     ]
   },
   {
     "id": "tpl_npm_build",
-    "name": "NPM 打包（产物压缩）",
-    "description": "npm run build，并将构建目录打包到指定路径",
+    "name": "NPM \u6253\u5305\uff08\u4ea7\u7269\u538b\u7f29\uff09",
+    "description": "npm run build\uff0c\u5e76\u5c06\u6784\u5efa\u76ee\u5f55\u6253\u5305\u5230\u6307\u5b9a\u8def\u5f84",
     "type": "local_script",
     "script": {
       "shell": "bash",
@@ -52,53 +55,56 @@
     "variables": [
       {
         "name": "project_dir",
-        "description": "项目根目录",
+        "description": "\u9879\u76ee\u6839\u76ee\u5f55",
         "default": "/path/to/project",
         "required": true
       },
       {
         "name": "build_dir",
-        "description": "构建输出目录（相对 project_dir）",
+        "description": "\u6784\u5efa\u8f93\u51fa\u76ee\u5f55\uff08\u76f8\u5bf9 project_dir\uff09",
         "default": "dist",
         "required": true
       },
       {
         "name": "output_path",
-        "description": "产物压缩包路径（绝对路径）",
+        "description": "\u4ea7\u7269\u538b\u7f29\u5305\u8def\u5f84\uff08\u7edd\u5bf9\u8def\u5f84\uff09",
         "default": "/tmp/simple_deploy_artifacts/web_build.tar.gz",
         "required": true
       }
     ],
     "outputs": [
-      {"name": "artifact", "path": "${output_path}"}
+      {
+        "name": "artifact",
+        "path": "${output_path}"
+      }
     ]
   },
   {
     "id": "tpl_upload_file_keep",
-    "name": "上传文件到目录（保持原名）",
-    "description": "将文件传输到指定目录，目录不存在自动创建",
+    "name": "\u4e0a\u4f20\u6587\u4ef6\u5230\u76ee\u5f55\uff08\u4fdd\u6301\u539f\u540d\uff09",
+    "description": "\u5c06\u6587\u4ef6\u4f20\u8f93\u5230\u6307\u5b9a\u76ee\u5f55\uff0c\u76ee\u5f55\u4e0d\u5b58\u5728\u81ea\u52a8\u521b\u5efa",
     "type": "ansible_playbook",
     "playbook_path": "assets/templates/playbooks/upload_file_keep.yml",
     "playbook_name": "Upload File Keep Name",
     "playbook_description": "Upload file to target directory",
-    "file_slots": [{"name": "file", "required": true, "multiple": false}],
+    "file_slots": [
+      {
+        "name": "file",
+        "required": true,
+        "multiple": false
+      }
+    ],
     "variables": [
       {
         "name": "remote_dest_dir",
-        "description": "目标目录",
+        "description": "\u76ee\u6807\u76ee\u5f55",
         "default": "/opt/app",
         "required": true
       },
       {
         "name": "file_mode",
-        "description": "文件权限",
+        "description": "\u6587\u4ef6\u6743\u9650",
         "default": "0644",
-        "required": false
-      },
-      {
-        "name": "python",
-        "description": "远程 python 路径",
-        "default": "/usr/bin/python3",
         "required": false
       }
     ],
@@ -106,36 +112,36 @@
   },
   {
     "id": "tpl_upload_file_rename",
-    "name": "上传文件到目录（指定文件名）",
-    "description": "将文件传输到指定目录并重命名",
+    "name": "\u4e0a\u4f20\u6587\u4ef6\u5230\u76ee\u5f55\uff08\u6307\u5b9a\u6587\u4ef6\u540d\uff09",
+    "description": "\u5c06\u6587\u4ef6\u4f20\u8f93\u5230\u6307\u5b9a\u76ee\u5f55\u5e76\u91cd\u547d\u540d",
     "type": "ansible_playbook",
     "playbook_path": "assets/templates/playbooks/upload_file_rename.yml",
     "playbook_name": "Upload File Rename",
     "playbook_description": "Upload file and rename",
-    "file_slots": [{"name": "file", "required": true, "multiple": false}],
+    "file_slots": [
+      {
+        "name": "file",
+        "required": true,
+        "multiple": false
+      }
+    ],
     "variables": [
       {
         "name": "remote_dest_dir",
-        "description": "目标目录",
+        "description": "\u76ee\u6807\u76ee\u5f55",
         "default": "/opt/app",
         "required": true
       },
       {
         "name": "dest_name",
-        "description": "目标文件名",
+        "description": "\u76ee\u6807\u6587\u4ef6\u540d",
         "default": "app.bin",
         "required": true
       },
       {
         "name": "file_mode",
-        "description": "文件权限",
+        "description": "\u6587\u4ef6\u6743\u9650",
         "default": "0644",
-        "required": false
-      },
-      {
-        "name": "python",
-        "description": "远程 python 路径",
-        "default": "/usr/bin/python3",
         "required": false
       }
     ],
@@ -143,8 +149,8 @@
   },
   {
     "id": "tpl_rename_file",
-    "name": "文件重命名",
-    "description": "将文件移动/重命名到新路径",
+    "name": "\u6587\u4ef6\u91cd\u547d\u540d",
+    "description": "\u5c06\u6587\u4ef6\u79fb\u52a8/\u91cd\u547d\u540d\u5230\u65b0\u8def\u5f84",
     "type": "ansible_playbook",
     "playbook_path": "assets/templates/playbooks/rename_file.yml",
     "playbook_name": "Rename File",
@@ -153,29 +159,23 @@
     "variables": [
       {
         "name": "src_path",
-        "description": "源路径",
+        "description": "\u6e90\u8def\u5f84",
         "default": "/opt/app/old.bin",
         "required": true
       },
       {
         "name": "dest_path",
-        "description": "目标路径",
+        "description": "\u76ee\u6807\u8def\u5f84",
         "default": "/opt/app/new.bin",
         "required": true
-      },
-      {
-        "name": "python",
-        "description": "远程 python 路径",
-        "default": "/usr/bin/python3",
-        "required": false
       }
     ],
     "outputs": []
   },
   {
     "id": "tpl_kill_port",
-    "name": "按端口 kill 进程",
-    "description": "按端口号强制 kill（未找到也不失败）",
+    "name": "\u6309\u7aef\u53e3 kill \u8fdb\u7a0b",
+    "description": "\u6309\u7aef\u53e3\u53f7\u5f3a\u5236 kill\uff08\u672a\u627e\u5230\u4e5f\u4e0d\u5931\u8d25\uff09",
     "type": "ansible_playbook",
     "playbook_path": "assets/templates/playbooks/kill_port.yml",
     "playbook_name": "Kill Port",
@@ -184,20 +184,14 @@
     "variables": [
       {
         "name": "port",
-        "description": "端口号",
+        "description": "\u7aef\u53e3\u53f7",
         "default": "8080",
         "required": true
       },
       {
         "name": "signal",
-        "description": "信号（默认 9）",
+        "description": "\u4fe1\u53f7\uff08\u9ed8\u8ba4 9\uff09",
         "default": "9",
-        "required": false
-      },
-      {
-        "name": "python",
-        "description": "远程 python 路径",
-        "default": "/usr/bin/python3",
         "required": false
       }
     ],
@@ -205,8 +199,8 @@
   },
   {
     "id": "tpl_start_program",
-    "name": "启动程序",
-    "description": "指定工作目录与启动命令，可选后台启动",
+    "name": "\u542f\u52a8\u7a0b\u5e8f",
+    "description": "\u6307\u5b9a\u5de5\u4f5c\u76ee\u5f55\u4e0e\u542f\u52a8\u547d\u4ee4\uff0c\u53ef\u9009\u540e\u53f0\u542f\u52a8",
     "type": "ansible_playbook",
     "playbook_path": "assets/templates/playbooks/start_program.yml",
     "playbook_name": "Start Program",
@@ -215,32 +209,26 @@
     "variables": [
       {
         "name": "work_dir",
-        "description": "工作目录",
+        "description": "\u5de5\u4f5c\u76ee\u5f55",
         "default": "/opt/app",
         "required": true
       },
       {
         "name": "start_cmd",
-        "description": "启动命令",
+        "description": "\u542f\u52a8\u547d\u4ee4",
         "default": "/opt/app/app",
         "required": true
       },
       {
         "name": "log_path",
-        "description": "日志路径",
+        "description": "\u65e5\u5fd7\u8def\u5f84",
         "default": "/opt/app/app.log",
         "required": false
       },
       {
         "name": "detach",
-        "description": "是否后台启动（true/false）",
+        "description": "\u662f\u5426\u540e\u53f0\u542f\u52a8\uff08true/false\uff09",
         "default": "true",
-        "required": false
-      },
-      {
-        "name": "python",
-        "description": "远程 python 路径",
-        "default": "/usr/bin/python3",
         "required": false
       }
     ],
@@ -248,8 +236,8 @@
   },
   {
     "id": "tpl_kill_port_start_java",
-    "name": "Kill 端口后启动 Java",
-    "description": "按端口强制 kill 后启动 Java 程序",
+    "name": "Kill \u7aef\u53e3\u540e\u542f\u52a8 Java",
+    "description": "\u6309\u7aef\u53e3\u5f3a\u5236 kill \u540e\u542f\u52a8 Java \u7a0b\u5e8f",
     "type": "ansible_playbook",
     "playbook_path": "assets/templates/playbooks/kill_port_start_java.yml",
     "playbook_name": "Kill Port + Start Java",
@@ -258,38 +246,32 @@
     "variables": [
       {
         "name": "port",
-        "description": "端口号",
+        "description": "\u7aef\u53e3\u53f7",
         "default": "8080",
         "required": true
       },
       {
         "name": "java_cmd",
-        "description": "Java 启动命令",
+        "description": "Java \u542f\u52a8\u547d\u4ee4",
         "default": "java -jar /opt/app/app.jar",
         "required": true
       },
       {
         "name": "work_dir",
-        "description": "工作目录",
+        "description": "\u5de5\u4f5c\u76ee\u5f55",
         "default": "/opt/app",
         "required": true
       },
       {
         "name": "log_path",
-        "description": "日志路径",
+        "description": "\u65e5\u5fd7\u8def\u5f84",
         "default": "/opt/app/app.log",
         "required": false
       },
       {
         "name": "signal",
-        "description": "信号（默认 9）",
+        "description": "\u4fe1\u53f7\uff08\u9ed8\u8ba4 9\uff09",
         "default": "9",
-        "required": false
-      },
-      {
-        "name": "python",
-        "description": "远程 python 路径",
-        "default": "/usr/bin/python3",
         "required": false
       }
     ],
@@ -297,30 +279,30 @@
   },
   {
     "id": "tpl_copy_extract",
-    "name": "上传并解压",
-    "description": "上传归档包并解压到目标目录",
+    "name": "\u4e0a\u4f20\u5e76\u89e3\u538b",
+    "description": "\u4e0a\u4f20\u5f52\u6863\u5305\u5e76\u89e3\u538b\u5230\u76ee\u6807\u76ee\u5f55",
     "type": "ansible_playbook",
     "playbook_path": "assets/templates/playbooks/copy_extract.yml",
     "playbook_name": "Copy & Extract",
     "playbook_description": "Upload archive and extract to target directory",
-    "file_slots": [{"name": "package", "required": true, "multiple": false}],
+    "file_slots": [
+      {
+        "name": "package",
+        "required": true,
+        "multiple": false
+      }
+    ],
     "variables": [
       {
         "name": "remote_dest_dir",
-        "description": "目标目录",
+        "description": "\u76ee\u6807\u76ee\u5f55",
         "default": "/opt/app",
         "required": true
       },
       {
         "name": "archive_keep",
-        "description": "是否保留原压缩包（true/false）",
+        "description": "\u662f\u5426\u4fdd\u7559\u539f\u538b\u7f29\u5305\uff08true/false\uff09",
         "default": "false",
-        "required": false
-      },
-      {
-        "name": "python",
-        "description": "远程 python 路径",
-        "default": "/usr/bin/python3",
         "required": false
       }
     ],
@@ -328,8 +310,8 @@
   },
   {
     "id": "tpl_systemd_service",
-    "name": "Systemd 服务控制",
-    "description": "启动/停止/重启 systemd 服务",
+    "name": "Systemd \u670d\u52a1\u63a7\u5236",
+    "description": "\u542f\u52a8/\u505c\u6b62/\u91cd\u542f systemd \u670d\u52a1",
     "type": "ansible_playbook",
     "playbook_path": "assets/templates/playbooks/systemd_service.yml",
     "playbook_name": "Systemd Service",
@@ -338,26 +320,20 @@
     "variables": [
       {
         "name": "service_name",
-        "description": "服务名",
+        "description": "\u670d\u52a1\u540d",
         "default": "my-service",
         "required": true
       },
       {
         "name": "service_state",
-        "description": "状态：started/stopped/restarted",
+        "description": "\u72b6\u6001\uff1astarted/stopped/restarted",
         "default": "restarted",
         "required": false
       },
       {
         "name": "enabled",
-        "description": "是否开机自启（true/false）",
+        "description": "\u662f\u5426\u5f00\u673a\u81ea\u542f\uff08true/false\uff09",
         "default": "true",
-        "required": false
-      },
-      {
-        "name": "python",
-        "description": "远程 python 路径",
-        "default": "/usr/bin/python3",
         "required": false
       }
     ],
@@ -365,31 +341,31 @@
   },
   {
     "id": "tpl_java_jar_deploy",
-    "name": "Java Jar 部署",
-    "description": "上传 jar 并重启 systemd 服务",
+    "name": "Java Jar \u90e8\u7f72",
+    "description": "\u4e0a\u4f20 jar \u5e76\u91cd\u542f systemd \u670d\u52a1",
     "type": "ansible_playbook",
     "playbook_path": "assets/templates/playbooks/java_jar_deploy.yml",
     "playbook_name": "Java Jar Deploy",
     "playbook_description": "Deploy jar and restart service",
-    "file_slots": [{"name": "jar", "required": true, "multiple": false}],
+    "file_slots": [
+      {
+        "name": "jar",
+        "required": true,
+        "multiple": false
+      }
+    ],
     "variables": [
       {
         "name": "app_name",
-        "description": "服务名",
+        "description": "\u670d\u52a1\u540d",
         "default": "app",
         "required": true
       },
       {
         "name": "deploy_dir",
-        "description": "部署目录",
+        "description": "\u90e8\u7f72\u76ee\u5f55",
         "default": "/opt/apps",
         "required": true
-      },
-      {
-        "name": "python",
-        "description": "远程 python 路径",
-        "default": "/usr/bin/python3",
-        "required": false
       }
     ],
     "outputs": []

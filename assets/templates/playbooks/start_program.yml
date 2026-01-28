@@ -7,7 +7,6 @@
     start_cmd: "/opt/app/app"
     log_path: "/opt/app/app.log"
     detach: "true"
-    ansible_python_interpreter: "{{ python | default('/usr/bin/python3') }}"
 
   tasks:
     - name: Start program (detached)

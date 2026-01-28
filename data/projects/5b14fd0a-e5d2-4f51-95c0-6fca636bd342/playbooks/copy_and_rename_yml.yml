@@ -5,7 +5,6 @@
   vars:
     remote_dest_dir: "/home/firework/firework_admin_back"
     remote_dest_filename: "firework-admin-back-0.1.0.jar"
-    ansible_python_interpreter: /usr/local/bin/python3.12
 
   tasks:
     - name: Ensure destination directory exists

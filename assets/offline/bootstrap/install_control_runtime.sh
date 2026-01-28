@@ -52,8 +52,16 @@ need_cmd mkdir
 need_cmd rm
 need_cmd chmod
 
+has_python312() {
+  if [[ -x "$PY_BIN" ]]; then
+    "$PY_BIN" -c 'import sys; raise SystemExit(0 if sys.version_info[:2]==(3,12) else 3)' >/dev/null 2>&1
+    return $?
+  fi
+  return 1
+}
+
 install_python() {
-  if command -v python3.12 >/dev/null 2>&1; then
+  if has_python312; then
     return 0
   fi
 

@@ -7,6 +7,7 @@ import 'package:get/get.dart';
 import 'package:path/path.dart' as p;
 import 'package:shadcn_flutter/shadcn_flutter.dart';
 
+import '../../../constants/runtime.dart';
 import '../../../model/batch.dart';
 import '../../../model/file_binding.dart';
 import '../../../model/file_slot.dart';
@@ -1097,7 +1098,11 @@ class _TaskProgressView extends StatelessWidget {
             value: control?.name ?? 'Unknown',
             icon: Icons.computer,
           ),
-          _InfoItem(label: 'Python', value: batch.pythonPath, icon: Icons.code),
+          _InfoItem(
+            label: 'Python（固定）',
+            value: kRemotePythonPath,
+            icon: Icons.code,
+          ),
           _InfoItem(
             label: '被控端',
             value: '${managed.length} 台',
@@ -1652,7 +1657,7 @@ Future<bool?> _maybeConfirmUnsupportedControlAutoInstall(
 
       final pythonOk =
           (await conn.execWithResult(
-            'bash -lc "command -v python3.12 >/dev/null 2>&1"',
+            'bash -lc "test -x /usr/local/bin/python3.12"',
           )).exitCode ==
           0;
       final ansibleOk =
@@ -1680,7 +1685,7 @@ Future<bool?> _maybeConfirmUnsupportedControlAutoInstall(
       final needRequired = !pythonOk || !ansibleOk;
 
       final missing = <String>[
-        if (!pythonOk) 'python3.12',
+        if (!pythonOk) kRemotePythonPath,
         if (!ansibleOk) 'ansible-playbook',
       ];
 
@@ -1780,7 +1785,11 @@ bool _isSupportedControlOs({
       versionIdLower.contains('v10') ||
       versionLower.contains('v10') ||
       prettyLower.contains('v10');
-  final looksSp3 = versionLower.contains('sp3') || prettyLower.contains('sp3');
+  final looksSp3 =
+      versionLower.contains('sp3') ||
+      prettyLower.contains('sp3') ||
+      versionLower.contains('lance') ||
+      prettyLower.contains('lance');
   return looksKylin && looksV10 && looksSp3;
 }
 
@@ -1802,7 +1811,6 @@ class _BatchEditDialog extends StatefulWidget {
 class _BatchEditDialogState extends State<_BatchEditDialog> {
   final m.TextEditingController _name = m.TextEditingController();
   final m.TextEditingController _desc = m.TextEditingController();
-  final m.TextEditingController _python = m.TextEditingController();
 
   String? _controlId;
   final Set<String> _managed = <String>{};
@@ -1815,7 +1823,6 @@ class _BatchEditDialogState extends State<_BatchEditDialog> {
     if (i != null) {
       _name.text = i.name;
       _desc.text = i.description;
-      _python.text = i.pythonPath;
       _controlId = i.controlServerId;
       _managed.addAll(i.managedServerIds);
       _items.addAll(i.orderedTaskItems());
@@ -1824,7 +1831,6 @@ class _BatchEditDialogState extends State<_BatchEditDialog> {
           .where((s) => s.type == ServerType.control && s.enabled)
           .toList();
       _controlId = firstControl.isEmpty ? null : firstControl.first.id;
-      _python.text = '/usr/bin/python3';
     }
   }
 
@@ -1832,7 +1838,6 @@ class _BatchEditDialogState extends State<_BatchEditDialog> {
   void dispose() {
     _name.dispose();
     _desc.dispose();
-    _python.dispose();
     super.dispose();
   }
 
@@ -1881,12 +1886,11 @@ class _BatchEditDialogState extends State<_BatchEditDialog> {
               onChanged: (v) => setState(() => _controlId = v),
             ),
             SizedBox(height: 12.h),
-            m.TextField(
-              controller: _python,
+            m.InputDecorator(
               decoration: const m.InputDecoration(
-                labelText: '远程 Python 路径（批次级）',
-                hintText: '/usr/bin/python3',
+                labelText: '远程 Python 路径（批次级，固定）',
               ),
+              child: Text(kRemotePythonPath),
             ),
             SizedBox(height: 16.h),
             Row(
@@ -2038,9 +2042,7 @@ class _BatchEditDialogState extends State<_BatchEditDialog> {
                       createdAt: initial?.createdAt ?? now,
                       updatedAt: now,
                       lastRunId: initial?.lastRunId,
-                      pythonPath: _python.text.trim().isEmpty
-                          ? '/usr/bin/python3'
-                          : _python.text.trim(),
+                      pythonPath: kRemotePythonPath,
                       runSeq: initial?.runSeq ?? 0,
                     ),
                   );
@@ -2209,7 +2211,9 @@ class _BatchInputsDialogState extends State<_BatchInputsDialog> {
             _fileInputs[entry.item.id]?[s.name] ?? const <FileBinding>[];
         if (list.isEmpty) return false;
       }
-      for (final v in t.variables.where((x) => x.required)) {
+      for (final v in t.variables.where(
+        (x) => x.required && x.name != 'python',
+      )) {
         final c = _varCtrls[entry.item.id]?[v.name];
         final text = c?.text ?? '';
         if (text.trim().isEmpty) return false;
@@ -2224,7 +2228,9 @@ class _BatchInputsDialogState extends State<_BatchInputsDialog> {
       final list = _fileInputs[entry.item.id]?[s.name] ?? const <FileBinding>[];
       if (list.isEmpty) return true;
     }
-    for (final v in t.variables.where((x) => x.required)) {
+    for (final v in t.variables.where(
+      (x) => x.required && x.name != 'python',
+    )) {
       final c = _varCtrls[entry.item.id]?[v.name];
       final text = c?.text ?? '';
       if (text.trim().isEmpty) return true;
@@ -2256,7 +2262,8 @@ class _BatchInputsDialogState extends State<_BatchInputsDialog> {
       final byVar = _varCtrls[entry.item.id];
       if (byVar == null) continue;
       outVars[entry.item.id] = <String, String>{
-        for (final v in t.variables) v.name: (byVar[v.name]?.text ?? ''),
+        for (final v in t.variables)
+          if (v.name != 'python') v.name: (byVar[v.name]?.text ?? ''),
       };
     }
 
@@ -2477,6 +2484,9 @@ class _BatchInputsDialogState extends State<_BatchInputsDialog> {
   Widget build(BuildContext context) {
     final entries = widget.entries;
     final selected = entries.isEmpty ? null : entries[_selectedIndex];
+    final selectedVars =
+        selected?.task.variables.where((v) => v.name != 'python').toList() ??
+        const <TaskVariable>[];
 
     return AlertDialog(
       title: const Text('选择运行输入'),
@@ -2555,8 +2565,8 @@ class _BatchInputsDialogState extends State<_BatchInputsDialog> {
                       children: [
                         Text(selected.displayName).p(),
                         SizedBox(height: 6.h),
-                        if (selected.task.variables.isNotEmpty) ...[
-                          for (final v in selected.task.variables) ...[
+                        if (selectedVars.isNotEmpty) ...[
+                          for (final v in selectedVars) ...[
                             m.TextField(
                               controller: _varCtrls[selected.item.id]?[v.name],
                               decoration: m.InputDecoration(

@@ -1,4 +1,5 @@
 import 'file_binding.dart';
+import '../constants/runtime.dart';
 
 class BatchStatus {
   static const String paused = 'paused';
@@ -187,7 +188,7 @@ class Batch {
       createdAt: createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       lastRunId: lastRunId ?? this.lastRunId,
-      pythonPath: pythonPath ?? this.pythonPath,
+      pythonPath: pythonPath == null ? this.pythonPath : kRemotePythonPath,
       runSeq: runSeq ?? this.runSeq,
     );
   }
@@ -233,7 +234,7 @@ class Batch {
       createdAt: DateTime.parse(json['created_at'] as String),
       updatedAt: DateTime.parse(json['updated_at'] as String),
       lastRunId: json['last_run_id'] as String?,
-      pythonPath: (json['python_path'] as String?) ?? '/usr/bin/python3',
+      pythonPath: kRemotePythonPath,
       runSeq: (json['run_seq'] as num?)?.toInt() ?? 0,
     );
   }

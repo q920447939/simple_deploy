@@ -2,7 +2,7 @@
   "id": "e43fe884-2754-4a6f-8ade-08278d5da23b",
   "name": "firework deploy",
   "description": "",
-  "status": "ended",
+  "status": "paused",
   "control_server_id": "adf11357-0ebb-403e-b0bd-3fd736336afe",
   "managed_server_ids": [
     "e8514cbc-e56b-476c-a31c-5fd02dd4e3e6"
@@ -48,7 +48,7 @@
           "remote_dest_dir": "/home/firework/firework_admin_back",
           "dest_name": "firework-admin-back-0.1.0.jar",
           "file_mode": "0644",
-          "python": "/usr/bin/python3"
+          "python": "/usr/local/bin/python3.12"
         }
       }
     },
@@ -64,8 +64,8 @@
     }
   ],
   "created_at": "2026-01-21T15:55:21.993279",
-  "updated_at": "2026-01-28T08:34:28.681362",
-  "last_run_id": "7df4d957-b269-46db-845e-22e195494d0c",
+  "updated_at": "2026-01-28T15:09:53.383343",
+  "last_run_id": "ae33334e-3d32-4f78-842a-7a26008c204d",
   "python_path": "/usr/local/bin/python3.12",
-  "run_seq": 9
+  "run_seq": 13
 }

@@ -6,7 +6,6 @@
     remote_dest_dir: "/opt/app"
     dest_name: "app.bin"
     file_mode: "0644"
-    ansible_python_interpreter: "{{ python | default('/usr/bin/python3') }}"
 
   tasks:
     - name: Ensure destination directory exists

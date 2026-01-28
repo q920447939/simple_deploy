@@ -6,6 +6,7 @@ import 'package:archive/archive_io.dart';
 import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 
+import '../../constants/runtime.dart';
 import '../../model/batch.dart';
 import '../../model/file_binding.dart';
 import '../../model/playbook_meta.dart';
@@ -27,6 +28,7 @@ import '../../storage/tasks_store.dart';
 import '../offline_assets/offline_assets.dart';
 import '../ssh/ssh_service.dart';
 import 'control_node_bootstrapper.dart';
+import 'managed_node_preflight.dart';
 
 class _BatchTaskEntry {
   final BatchTaskItem item;
@@ -112,11 +114,10 @@ class RunEngine {
       );
     }
     final orderedTasks = [for (final e in orderedEntries) e.task];
+    final hasAnyRemote = orderedTasks.any((t) => t.isAnsiblePlaybook);
 
     final runId = uuid.v4();
-    final pythonPath = batch.pythonPath.trim().isEmpty
-        ? '/usr/bin/python3'
-        : batch.pythonPath.trim();
+    final pythonPath = kRemotePythonPath;
     final nextSeq = batch.runSeq + 1;
     final lockInfo = BatchLockInfo(
       runId: runId,
@@ -336,7 +337,6 @@ class RunEngine {
         aborted: false,
       );
 
-      final hasAnyRemote = orderedTasks.any((t) => t.isAnsiblePlaybook);
       if (!hasAnyRemote) {
         await logSystem('no remote tasks; mark run success');
         run = run.copyWith(systemStatus: TaskExecStatus.success);
@@ -385,6 +385,18 @@ class RunEngine {
           'bash -lc "mkdir -p /tmp/simple_deploy && echo ok > /tmp/simple_deploy/.sd_write_test && test -s /tmp/simple_deploy/.sd_write_test && rm -f /tmp/simple_deploy/.sd_write_test"',
           title: '控制端 /tmp 不可写，无法创建运行目录',
         );
+        if (hasAnyRemote) {
+          await logSystem('preflight managed nodes (via control)');
+          await ManagedNodePreflight(
+            logger: logger,
+            assets: OfflineAssets.locate(),
+          ).ensurePythonFromControl(
+            conn: conn,
+            servers: managedServers,
+            logSystem: logSystem,
+            runArtifacts: pp.runArtifactsFor(runId),
+          );
+        }
 
         await logSystem('create remote run dir');
         await _requireRemoteOk(
@@ -742,8 +754,7 @@ class RunEngine {
       final t = entry.task;
       final defs = t.variables;
       if (defs.isEmpty) {
-        final py = pythonPath.trim().isEmpty ? '/usr/bin/python3' : pythonPath;
-        out[entry.item.id] = {'python': py};
+        out[entry.item.id] = {'python': pythonPath};
         continue;
       }
       final map = <String, String>{
@@ -768,8 +779,7 @@ class RunEngine {
       }
       map.addAll(provided);
 
-      final py = pythonPath.trim().isEmpty ? '/usr/bin/python3' : pythonPath;
-      map['python'] = py;
+      map['python'] = pythonPath;
 
       for (final d in defs) {
         if (!d.required) continue;
@@ -1448,8 +1458,7 @@ class RunEngine {
     for (final s in managedServers) {
       final id = s.id.replaceAll('-', '_');
       final user = s.username.isEmpty ? 'root' : s.username;
-      final pyRaw = pythonPath.trim().isEmpty ? '/usr/bin/python3' : pythonPath;
-      final py = _iniEscape(pyRaw);
+      final py = _iniEscape(pythonPath);
       lines.add(
         'host_$id ansible_host=${s.ip} ansible_user=$user ansible_password=${_iniEscape(s.password)} ansible_port=${s.port} ansible_connection=paramiko ansible_python_interpreter=$py',
       );

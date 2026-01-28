@@ -21,16 +21,14 @@
     "a498e80e-5f81-4d89-825a-f851404e60db": {
       "remote_dest_dir": "/home/firework/firework_admin_back",
       "dest_name": "firework-admin-back-0.1.0.jar",
-      "file_mode": "0644",
-      "python": ""
+      "file_mode": "0644"
     },
     "3a63facd-03fc-4e1d-8e7c-2f868615df8a": {
       "port": "8080",
-      "java_cmd": "/home/tzdata/jdk/TencentKona-17.0.11.b1/bin/java -jar /home/firework/firework_admin_back/firework-admin-back-0.1.0.jar",
+      "java_cmd": "java -jar /home/firework/firework_admin_back/firework-admin-back-0.1.0.jar",
       "work_dir": "/home/firework/firework_admin_back",
       "log_path": "/home/firework/firework_admin_back/app.log",
-      "signal": "9",
-      "python": ""
+      "signal": "9"
     }
   }
 }

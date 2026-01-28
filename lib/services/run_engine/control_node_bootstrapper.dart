@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import '../../constants/runtime.dart';
 import '../../services/core/app_error.dart';
 import '../../services/core/app_logger.dart';
 import '../../services/offline_assets/offline_assets.dart';
@@ -201,22 +202,27 @@ class ControlNodeBootstrapper {
         versionId.contains('v10') ||
         version.contains('v10') ||
         pretty.contains('v10');
-    final looksSp3 = version.contains('sp3') || pretty.contains('sp3');
+    final looksSp3 =
+        version.contains('sp3') ||
+        pretty.contains('sp3') ||
+        version.contains('lance') ||
+        pretty.contains('lance');
     return looksKylin && looksV10 && looksSp3;
   }
 
   Future<bool> _hasPython312() async {
-    final r = await conn.execWithResult(
-      'bash -lc "command -v python3.12 >/dev/null 2>&1 && python3.12 -c \\"import sys; raise SystemExit(0 if sys.version_info[:2]==(3,12) else 3)\\""',
-    );
+    final inner =
+        'test -x ${_shDQ(kRemotePythonPath)} && '
+        '${_shDQ(kRemotePythonPath)} -c "import sys; raise SystemExit(0 if sys.version_info[:2]==(3,12) else 3)"';
+    final r = await conn.execWithResult('bash -lc ${_shSQ(inner)}');
     return r.exitCode == 0;
   }
 
   Future<bool> _hasAnsible(String ansiblePlaybookPath) async {
-    final cmd = ansiblePlaybookPath == 'ansible-playbook'
-        ? 'bash -lc "command -v ansible-playbook >/dev/null 2>&1 && ansible-playbook --version >/dev/null 2>&1"'
-        : 'bash -lc "test -x ${_shDQ(ansiblePlaybookPath)} && ${_shDQ(ansiblePlaybookPath)} --version >/dev/null 2>&1"';
-    final r = await conn.execWithResult(cmd);
+    final inner = ansiblePlaybookPath == 'ansible-playbook'
+        ? 'command -v ansible-playbook >/dev/null 2>&1 && ansible-playbook --version >/dev/null 2>&1'
+        : 'test -x ${_shDQ(ansiblePlaybookPath)} && ${_shDQ(ansiblePlaybookPath)} --version >/dev/null 2>&1';
+    final r = await conn.execWithResult('bash -lc ${_shSQ(inner)}');
     return r.exitCode == 0;
   }
 
@@ -226,9 +232,9 @@ class ControlNodeBootstrapper {
     for (final spec in ansible.extraPip) {
       final name = spec.split(RegExp(r'[<>=!]')).first.trim().toLowerCase();
       if (name == 'paramiko') {
-        final r = await conn.execWithResult(
-          'bash -lc "test -x ${_shDQ(venvPy)} && ${_shDQ(venvPy)} -c \\"import paramiko\\""',
-        );
+        final inner =
+            'test -x ${_shDQ(venvPy)} && ${_shDQ(venvPy)} -c "import paramiko"';
+        final r = await conn.execWithResult('bash -lc ${_shSQ(inner)}');
         if (r.exitCode != 0) return false;
       }
     }
@@ -236,9 +242,8 @@ class ControlNodeBootstrapper {
   }
 
   Future<bool> _hasCommand(String name) async {
-    final r = await conn.execWithResult(
-      'bash -lc "command -v ${_shDQ(name)} >/dev/null 2>&1"',
-    );
+    final inner = 'command -v ${_shDQ(name)} >/dev/null 2>&1';
+    final r = await conn.execWithResult('bash -lc ${_shSQ(inner)}');
     return r.exitCode == 0;
   }
 
@@ -480,7 +485,7 @@ class _PythonManifest {
       provider: (json['provider'] as String?) ?? '',
       providerTag: (json['providerTag'] as String?) ?? '',
       installDir: (json['installDir'] as String?) ?? '',
-      binPath: (json['binPath'] as String?) ?? '/usr/bin/python3.12',
+      binPath: (json['binPath'] as String?) ?? kRemotePythonPath,
     );
   }
 }

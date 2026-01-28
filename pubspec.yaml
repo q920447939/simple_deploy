@@ -8,6 +8,7 @@ environment:
 
 dependencies:
   archive: ^4.0.7
+  crypto: ^3.0.3
   dartssh2: ^2.13.0
   file_picker: ^10.3.8
   flutter:
@@ -31,6 +32,8 @@ flutter:
   assets:
     - assets/offline/manifest.json
     - assets/offline/bootstrap/install_control_runtime.sh
+    - assets/offline/bootstrap/install_managed_python.sh
+    - assets/offline/bootstrap/managed_preflight.py
     - assets/offline/python/
     - assets/offline/ansible/
     - assets/offline/os_pkgs/ubuntu/

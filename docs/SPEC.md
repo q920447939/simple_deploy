@@ -229,7 +229,7 @@
 ### 4.2 inventory 生成（最简）
 客户端在每次 Run 生成 `inventory.ini`，示例（概念）：
 - `[all]`
-- `host_001 ansible_host=10.0.0.1 ansible_user=root ansible_password=xxx ansible_port=22 ansible_connection=paramiko ansible_python_interpreter=/usr/bin/python3`
+- `host_001 ansible_host=10.0.0.1 ansible_user=root ansible_password=xxx ansible_port=22 ansible_connection=paramiko ansible_python_interpreter=/usr/local/bin/python3.12`
 
 说明：
 - v1 不做分组；playbook 默认对 `all` 执行即可。

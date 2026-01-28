@@ -171,6 +171,7 @@ class Task {
           .toList(),
       variables: vars
           .map((m) => TaskVariable.fromJson(m.cast<String, Object?>()))
+          .where((v) => v.name.trim().toLowerCase() != 'python')
           .toList(),
       outputs: outputs
           .map((m) => TaskOutput.fromJson(m.cast<String, Object?>()))

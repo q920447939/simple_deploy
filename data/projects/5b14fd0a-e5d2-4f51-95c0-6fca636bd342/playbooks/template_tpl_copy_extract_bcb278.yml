@@ -5,7 +5,6 @@
   vars:
     remote_dest_dir: "/opt/app"
     archive_keep: "false"
-    ansible_python_interpreter: "{{ python | default('/usr/bin/python3') }}"
 
   tasks:
     - name: Ensure destination directory exists

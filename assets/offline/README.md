@@ -1,6 +1,7 @@
 # 离线安装包（控制端）
 
-本目录用于在 **控制端** 缺少 `python3.12` / `ansible-playbook` 时，由客户端（Flutter）通过 SSH 上传并自动安装。
+本目录用于在 **控制端** 缺少 `python3.12` / `ansible-playbook` 时，由客户端（Flutter）通过 SSH 上传并自动安装；
+同时用于在 **被控端** 缺少 `python3.12` 时自动安装（路径固定为 `/usr/local/bin/python3.12`）。
 
 ## 支持范围
 - OS：Ubuntu `24+`、银河麒麟 `V10 SP3`
@@ -12,6 +13,12 @@
 - `ansible/`：`pip wheelhouse` 打包（`tar.gz`）。
 - `os_pkgs/`：控制端常用系统工具的离线包（当前提供 Ubuntu 的 `sshpass/unzip` `.deb`，用于尽量自动补齐依赖）。
 - `bootstrap/install_control_runtime.sh`：控制端执行的安装脚本（幂等）。
+- `bootstrap/install_managed_python.sh`：被控端执行的 Python 安装脚本（幂等，仅安装 python3.12）。
+- `bootstrap/managed_preflight.py`：控制端执行的被控端预检脚本（通过 SSH/Paramiko 下发并安装 python3.12）。
+
+## 控制端缓存
+- 预检阶段会在控制端缓存离线包与脚本以减少重复上传。
+- 默认缓存目录：`/opt/simple_deploy/cache`（若不可写则回退到 `/tmp/simple_deploy/cache`）。
 
 ## 生成/更新离线包
 在仓库根目录执行：

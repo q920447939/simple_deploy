@@ -6,7 +6,6 @@
     app_jar_path: /home/firework/firework_admin_back/firework-admin-back-0.1.0.jar
     app_log_redirect: /dev/null
     app_port: 18080
-    ansible_python_interpreter: /usr/local/bin/python3.12
     
   tasks:
     - name: Kill process using port {{ app_port }}

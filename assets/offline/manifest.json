@@ -5,7 +5,7 @@
     "provider": "python-build-standalone",
     "providerTag": "20260113",
     "installDir": "/opt/simple_deploy/python-3.12.12",
-    "binPath": "/usr/bin/python3.12"
+    "binPath": "/usr/local/bin/python3.12"
   },
   "ansible": {
     "version": "13.2.0",
