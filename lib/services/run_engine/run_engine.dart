@@ -6,7 +6,6 @@ import 'package:archive/archive_io.dart';
 import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 
-import '../../constants/runtime.dart';
 import '../../model/batch.dart';
 import '../../model/file_binding.dart';
 import '../../model/playbook_meta.dart';
@@ -108,16 +107,16 @@ class RunEngine {
     if (orderedEntries.isEmpty) {
       throw const AppException(
         code: AppErrorCode.unknown,
-        title: '任务为空',
-        message: '批次任务顺序为空或任务不存在。',
-        suggestion: '编辑批次并选择至少 1 个任务。',
+        title: '步骤为空',
+        message: '批次步骤顺序为空或步骤不存在。',
+        suggestion: '编辑批次并选择至少 1 个步骤。',
       );
     }
     final orderedTasks = [for (final e in orderedEntries) e.task];
     final hasAnyRemote = orderedTasks.any((t) => t.isAnsiblePlaybook);
 
     final runId = uuid.v4();
-    final pythonPath = kRemotePythonPath;
+    final pythonPath = batch.pythonPath;
     final nextSeq = batch.runSeq + 1;
     final lockInfo = BatchLockInfo(
       runId: runId,
@@ -202,6 +201,14 @@ class RunEngine {
         'seq': nextSeq,
         'created_at': DateTime.now().toIso8601String(),
         'python_path': pythonPath,
+        'ansible': <String, Object?>{
+          'forks': batch.ansibleForks,
+          'timeout': batch.ansibleTimeout,
+          'become': batch.ansibleBecome,
+          'become_user': batch.ansibleBecomeUser,
+          'become_method': batch.ansibleBecomeMethod,
+          'check': batch.ansibleCheck,
+        },
         'control_server': _snapshotServer(controlServer),
         'managed_servers': managedServers
             .map((s) => _snapshotServer(s))
@@ -445,8 +452,8 @@ class RunEngine {
             throw AppException(
               code: AppErrorCode.unknown,
               title: 'Playbook 未找到',
-              message: '任务 ${task.name} 绑定的 playbookId 不存在。',
-              suggestion: '编辑任务并重新绑定 Playbook。',
+              message: '步骤 ${task.name} 绑定的 playbookId 不存在。',
+              suggestion: '编辑步骤并重新绑定 Playbook。',
             );
           }
 
@@ -503,6 +510,7 @@ class RunEngine {
               playbookPath: remotePlaybookPath,
               taskIndex: i,
               ansiblePlaybook: runtime.ansiblePlaybook,
+              batch: batch,
             );
             logger.info(
               'run.task.start',
@@ -567,8 +575,8 @@ class RunEngine {
                 result: RunResult.failed,
                 endedAt: DateTime.now(),
                 errorSummary: recapFailed && exit == 0
-                    ? '任务失败：${task.name} (${recapInfo ?? "recap failed"})'
-                    : '任务失败：${task.name} (exit=$exit)',
+                    ? '步骤失败：${task.name} (${recapInfo ?? "recap failed"})'
+                    : '步骤失败：${task.name} (exit=$exit)',
               );
               run = _markPendingTasksBlocked(run);
               await runsStore.write(run);
@@ -719,9 +727,9 @@ class RunEngine {
       if (seenRemote && t.isLocalScript) {
         throw const AppException(
           code: AppErrorCode.validation,
-          title: '任务顺序不支持',
-          message: '脚本任务只能放在 Ansible Playbook 任务之前（作为前置步骤）。',
-          suggestion: '请在批次中调整任务顺序：把脚本任务拖到最前面。',
+          title: '步骤顺序不支持',
+          message: '脚本步骤只能放在 Playbook 步骤之前（作为前置步骤）。',
+          suggestion: '请在批次中调整步骤顺序：把脚本步骤拖到最前面。',
         );
       }
     }
@@ -772,7 +780,7 @@ class RunEngine {
           throw AppException(
             code: AppErrorCode.validation,
             title: '变量不合法',
-            message: '任务 ${t.name} 提供了未知变量：$k',
+            message: '步骤 ${t.name} 提供了未知变量：$k',
             suggestion: '请重新打开“选择输入”对话框并重新填写变量。',
           );
         }
@@ -788,7 +796,7 @@ class RunEngine {
           throw AppException(
             code: AppErrorCode.validation,
             title: '缺少必填变量',
-            message: '任务 ${t.name} 的变量 ${d.name} 为必填，但未填写。',
+            message: '步骤 ${t.name} 的变量 ${d.name} 为必填，但未填写。',
             suggestion: '返回重新填写变量后再执行。',
           );
         }
@@ -1007,7 +1015,7 @@ class RunEngine {
             status: RunStatus.ended,
             result: RunResult.failed,
             endedAt: DateTime.now(),
-            errorSummary: '脚本任务失败：${task.name} (missing script)',
+            errorSummary: '脚本步骤失败：${task.name} (missing script)',
           );
           await runsStore.write(run);
           return _PreparedLocalRun(run: run, aborted: true);
@@ -1034,7 +1042,7 @@ class RunEngine {
             result: RunResult.failed,
             endedAt: DateTime.now(),
             errorSummary:
-                '脚本任务失败：${task.name} (unsupported shell, expect $allowed)',
+                '脚本步骤失败：${task.name} (unsupported shell, expect $allowed)',
           );
           await runsStore.write(run);
           return _PreparedLocalRun(run: run, aborted: true);
@@ -1114,7 +1122,7 @@ class RunEngine {
             status: RunStatus.ended,
             result: RunResult.failed,
             endedAt: DateTime.now(),
-            errorSummary: '脚本任务失败：${task.name} (无法启动解释器)',
+            errorSummary: '脚本步骤失败：${task.name} (无法启动解释器)',
           );
           await runsStore.write(run);
           return _PreparedLocalRun(run: run, aborted: true);
@@ -1152,7 +1160,7 @@ class RunEngine {
             status: RunStatus.ended,
             result: RunResult.failed,
             endedAt: DateTime.now(),
-            errorSummary: '脚本任务失败：${task.name} (exit=$exit)',
+            errorSummary: '脚本步骤失败：${task.name} (exit=$exit)',
           );
           await runsStore.write(run);
           return _PreparedLocalRun(run: run, aborted: true);
@@ -1228,7 +1236,7 @@ class RunEngine {
           throw AppException(
             code: AppErrorCode.validation,
             title: '缺少必选文件',
-            message: '任务 ${task.name} 存在必选文件槽位，但未提供任何文件输入。',
+            message: '步骤 ${task.name} 存在必选文件槽位，但未提供任何文件输入。',
             suggestion: '返回重新选择文件后再执行。',
           );
         }
@@ -1241,7 +1249,7 @@ class RunEngine {
           throw AppException(
             code: AppErrorCode.validation,
             title: '缺少必选文件',
-            message: '任务 ${task.name} 的槽位 ${slot.name} 为必选，但未选择文件。',
+            message: '步骤 ${task.name} 的槽位 ${slot.name} 为必选，但未选择文件。',
             suggestion: '返回重新选择文件后再执行。',
           );
         }
@@ -1249,7 +1257,7 @@ class RunEngine {
           throw AppException(
             code: AppErrorCode.validation,
             title: '文件选择数量不合法',
-            message: '任务 ${task.name} 的槽位 ${slot.name} 仅允许选择 1 个文件。',
+            message: '步骤 ${task.name} 的槽位 ${slot.name} 仅允许选择 1 个文件。',
             suggestion: '返回重新选择文件后再执行。',
           );
         }
@@ -1267,7 +1275,7 @@ class RunEngine {
             code: AppErrorCode.validation,
             title: '槽位名不合法',
             message: '槽位名包含非法字符：$slotName',
-            suggestion: '编辑任务并使用仅包含字母/数字/下划线的槽位名。',
+            suggestion: '编辑步骤并使用仅包含字母/数字/下划线的槽位名。',
           );
         }
 
@@ -1297,7 +1305,7 @@ class RunEngine {
                 throw AppException(
                   code: AppErrorCode.validation,
                   title: '脚本产物来源不唯一',
-                  message: '脚本产物来源无法定位到唯一任务实例。',
+                  message: '脚本产物来源无法定位到唯一步骤实例。',
                   suggestion: '请重新选择脚本产物来源。',
                 );
               }
@@ -1305,7 +1313,7 @@ class RunEngine {
                 throw AppException(
                   code: AppErrorCode.validation,
                   title: '脚本产物来源不合法',
-                  message: '未找到对应的脚本任务：',
+                  message: '未找到对应的脚本步骤：',
                   suggestion: '请重新选择脚本产物后再执行。',
                 );
               }
@@ -1313,8 +1321,8 @@ class RunEngine {
                 throw AppException(
                   code: AppErrorCode.validation,
                   title: '脚本产物顺序不合法',
-                  message: '脚本产物必须来自当前任务之前的脚本任务。',
-                  suggestion: '调整任务顺序后重试。',
+                  message: '脚本产物必须来自当前步骤之前的脚本步骤。',
+                  suggestion: '调整步骤顺序后重试。',
                 );
               }
               if (sourceOutput != null) {
@@ -1350,7 +1358,7 @@ class RunEngine {
                 code: AppErrorCode.validation,
                 title: '脚本产物路径为空',
                 message: '脚本产物未配置有效路径。',
-                suggestion: '请检查脚本任务的产物配置。',
+                suggestion: '请检查脚本步骤的产物配置。',
               );
             }
             continue;
@@ -1479,14 +1487,44 @@ class RunEngine {
     required String playbookPath,
     required int taskIndex,
     required String ansiblePlaybook,
+    required Batch batch,
   }) {
     final dir = _bashEscape(runDir);
     final pb = _bashEscape(playbookPath);
     final log = _bashEscape('logs/task_$taskIndex.log');
     final ab = _bashEscape(ansiblePlaybook);
     final vars = _bashEscape('vars_task_$taskIndex.json');
-    return 'bash -lc "cd \\"$dir\\" && set -o pipefail; ANSIBLE_HOST_KEY_CHECKING=False \\"$ab\\" -i inventory.ini \\"$pb\\" --extra-vars @$vars 2>&1 | tee \\"$log\\"; exit \${PIPESTATUS[0]}"';
+    final args = _buildAnsibleArgs(batch);
+    final extra = args.isEmpty ? '' : ' $args';
+    return 'bash -lc "cd \\"$dir\\" && set -o pipefail; ANSIBLE_HOST_KEY_CHECKING=False \\"$ab\\" -i inventory.ini \\"$pb\\"$extra --extra-vars @$vars 2>&1 | tee \\"$log\\"; exit \${PIPESTATUS[0]}"';
   }
+
+  static String _buildAnsibleArgs(Batch batch) {
+    final args = <String>[];
+    if (batch.ansibleForks != null && batch.ansibleForks! > 0) {
+      args.add('-f ${batch.ansibleForks}');
+    }
+    if (batch.ansibleTimeout != null && batch.ansibleTimeout! > 0) {
+      args.add('-T ${batch.ansibleTimeout}');
+    }
+    if (batch.ansibleBecome) {
+      args.add('--become');
+    }
+    final becomeUser = batch.ansibleBecomeUser.trim();
+    if (becomeUser.isNotEmpty) {
+      args.add('--become-user ${_shellQuote(becomeUser)}');
+    }
+    final becomeMethod = batch.ansibleBecomeMethod.trim();
+    if (becomeMethod.isNotEmpty) {
+      args.add('--become-method ${_shellQuote(becomeMethod)}');
+    }
+    if (batch.ansibleCheck) {
+      args.add('--check');
+    }
+    return args.join(' ');
+  }
+
+  static String _shellQuote(String s) => '\\"${_bashEscape(s)}\\"';
 
   static String _bashEscape(String s) =>
       s.replaceAll('\\', '\\\\').replaceAll('"', '\\"');

@@ -548,7 +548,7 @@ class _BatchHeader extends StatelessWidget {
               ),
               OutlineButton(
                 onPressed: running ? null : onEditParams,
-                child: const Text('编辑参数'),
+                child: const Text('编辑步骤参数'),
               ),
               if (ended)
                 OutlineButton(
@@ -709,7 +709,7 @@ class _HorizontalTaskProgressBar extends StatelessWidget {
               final upload = controller.uploadProgress.value;
 
               if (entries.isEmpty) {
-                return const Center(child: Text('暂无任务'));
+                return const Center(child: Text('暂无步骤'));
               }
 
               return ListView.separated(
@@ -882,7 +882,7 @@ class _BatchMainArea extends StatefulWidget {
 }
 
 class _BatchMainAreaState extends State<_BatchMainArea> {
-  int _tabIndex = 0; // 0: 概览, 1: 任务, 2: 参数, 3: 运行记录, 4: 设置
+  int _tabIndex = 0; // 0: 概览, 1: 运行记录, 2: 设置
   String _lastStatus = '';
   String? _lastRunId;
   bool _autoSwitchArmed = true;
@@ -905,10 +905,10 @@ class _BatchMainAreaState extends State<_BatchMainArea> {
       }
 
       final shouldFocusRuns = running || selectedRun != null;
-      if (_autoSwitchArmed && shouldFocusRuns && _tabIndex != 3) {
+      if (_autoSwitchArmed && shouldFocusRuns && _tabIndex != 1) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (!mounted) return;
-          setState(() => _tabIndex = 3);
+          setState(() => _tabIndex = 1);
         });
         _autoSwitchArmed = false;
       }
@@ -926,28 +926,16 @@ class _BatchMainAreaState extends State<_BatchMainArea> {
                   onTap: () => setState(() => _tabIndex = 0),
                 ),
                 _TabBtn(
-                  label: '任务',
-                  icon: Icons.playlist_play,
+                  label: '运行记录',
+                  icon: Icons.article,
                   isSelected: _tabIndex == 1,
                   onTap: () => setState(() => _tabIndex = 1),
                 ),
                 _TabBtn(
-                  label: '参数',
-                  icon: Icons.tune,
-                  isSelected: _tabIndex == 2,
-                  onTap: () => setState(() => _tabIndex = 2),
-                ),
-                _TabBtn(
-                  label: '运行记录',
-                  icon: Icons.article,
-                  isSelected: _tabIndex == 3,
-                  onTap: () => setState(() => _tabIndex = 3),
-                ),
-                _TabBtn(
                   label: '设置',
                   icon: Icons.settings,
-                  isSelected: _tabIndex == 4,
-                  onTap: () => setState(() => _tabIndex = 4),
+                  isSelected: _tabIndex == 2,
+                  onTap: () => setState(() => _tabIndex = 2),
                 ),
               ],
             ),
@@ -961,13 +949,11 @@ class _BatchMainAreaState extends State<_BatchMainArea> {
                 managed: widget.managed,
                 entries: widget.entries,
               ),
-              1 => _BatchTasksView(entries: widget.entries),
-              2 => _BatchParametersView(
+              1 => _BatchRunsView(
                 batch: widget.batch,
                 entries: widget.entries,
-                control: widget.control,
+                onBackToConfig: () => setState(() => _tabIndex = 0),
               ),
-              3 => _BatchRunsView(batch: widget.batch, entries: widget.entries),
               _ => _BatchSettingsView(batch: widget.batch),
             },
           ),
@@ -1023,8 +1009,20 @@ class _BatchOverviewView extends StatelessWidget {
           children: [
             _SummaryCard(label: '状态', value: statusText),
             _SummaryCard(label: '控制端', value: control?.name ?? 'Unknown'),
-            _SummaryCard(label: '被控端', value: '${managed.length} 台'),
-            _SummaryCard(label: '任务数', value: '${entries.length} 个'),
+            _SummaryCard(
+              label: '被控端',
+              value: '${managed.length} 台',
+              onTap: managed.isEmpty
+                  ? null
+                  : () async {
+                      await showDialog<void>(
+                        context: context,
+                        builder: (context) =>
+                            _ManagedServersDialog(servers: managed),
+                      );
+                    },
+            ),
+            _SummaryCard(label: '步骤数', value: '${entries.length} 个'),
             _SummaryCard(label: '最近运行', value: lastRunText),
             _SummaryCard(
               label: '最近结果',
@@ -1049,6 +1047,86 @@ class _BatchOverviewView extends StatelessWidget {
             ),
           ),
         ],
+        SizedBox(height: 16.h),
+        Row(
+          children: [
+            Text('执行步骤', style: m.Theme.of(context).textTheme.titleMedium),
+            const Spacer(),
+            OutlineButton(
+              onPressed: entries.isEmpty
+                  ? null
+                  : () async {
+                      final inputs = await showDialog<RunInputs>(
+                        context: context,
+                        builder: (context) => _BatchInputsDialog(
+                          entries: entries,
+                          actionLabel: '保存参数',
+                          enforceRequired: false,
+                        ),
+                      );
+                      if (inputs == null) return;
+                      try {
+                        await controller.updateBatchTaskInputs(batch, inputs);
+                      } on AppException catch (e) {
+                        if (context.mounted) {
+                          await showAppErrorDialog(context, e);
+                        }
+                      }
+                    },
+              child: const Text('编辑步骤参数'),
+            ),
+            SizedBox(width: 8.w),
+            GhostButton(
+              onPressed: entries.isEmpty
+                  ? null
+                  : () async {
+                      if (!context.mounted) return;
+                      await showDialog<void>(
+                        context: context,
+                        builder: (context) => _BatchSnapshotsDialog(
+                          batch: batch,
+                          entries: entries,
+                          control: control,
+                        ),
+                      );
+                    },
+              child: const Text('参数快照'),
+            ),
+          ],
+        ),
+        SizedBox(height: 8.h),
+        if (entries.isEmpty)
+          const Center(child: Text('暂无步骤'))
+        else
+          Column(
+            children: [
+              for (var i = 0; i < entries.length; i++) ...[
+                _BatchStepCard(
+                  index: i,
+                  entry: entries[i],
+                  onEditParams: () async {
+                    final inputs = await showDialog<RunInputs>(
+                      context: context,
+                      builder: (context) => _BatchInputsDialog(
+                        entries: [entries[i]],
+                        actionLabel: '保存参数',
+                        enforceRequired: false,
+                      ),
+                    );
+                    if (inputs == null) return;
+                    try {
+                      await controller.updateBatchTaskInputs(batch, inputs);
+                    } on AppException catch (e) {
+                      if (context.mounted) {
+                        await showAppErrorDialog(context, e);
+                      }
+                    }
+                  },
+                ),
+                SizedBox(height: 8.h),
+              ],
+            ],
+          ),
       ],
     );
   }
@@ -1058,97 +1136,280 @@ class _SummaryCard extends StatelessWidget {
   final String label;
   final String value;
   final Color? valueColor;
+  final VoidCallback? onTap;
 
   const _SummaryCard({
     required this.label,
     required this.value,
     this.valueColor,
+    this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
+    final content = Padding(
+      padding: EdgeInsets.all(12.r),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label).muted(),
+          SizedBox(height: 6.h),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 16.sp,
+              fontWeight: FontWeight.w600,
+              color: valueColor,
+            ),
+          ),
+        ],
+      ),
+    );
     return SizedBox(
       width: 220.w,
       child: Card(
-        child: Padding(
-          padding: EdgeInsets.all(12.r),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(label).muted(),
-              SizedBox(height: 6.h),
-              Text(
-                value,
-                style: TextStyle(
-                  fontSize: 16.sp,
-                  fontWeight: FontWeight.w600,
-                  color: valueColor,
-                ),
+        child: onTap == null
+            ? content
+            : m.InkWell(
+                onTap: onTap,
+                borderRadius: BorderRadius.circular(8.r),
+                child: content,
               ),
-            ],
-          ),
-        ),
       ),
     );
   }
 }
 
-class _BatchTasksView extends StatelessWidget {
-  final List<_BatchTaskEntry> entries;
+class _BatchStepCard extends StatelessWidget {
+  final int index;
+  final _BatchTaskEntry entry;
+  final VoidCallback onEditParams;
 
-  const _BatchTasksView({required this.entries});
+  const _BatchStepCard({
+    required this.index,
+    required this.entry,
+    required this.onEditParams,
+  });
+
+  String _varDisplay(TaskVariable v) {
+    final alias = v.alias.trim();
+    if (alias.isEmpty) return v.name;
+    return '$alias (${v.name})';
+  }
+
+  String _formatInputVars(Map<String, String> vars) {
+    if (vars.isEmpty) return '未设置';
+    final parts = <String>[];
+    for (final e in vars.entries) {
+      if (e.key == 'python') continue;
+      if (e.value.trim().isEmpty) continue;
+      parts.add('${e.key}=${e.value}');
+      if (parts.length >= 4) break;
+    }
+    return parts.isEmpty ? '未设置' : parts.join(', ');
+  }
+
+  String _formatInputFiles(Map<String, List<FileBinding>> inputs) {
+    if (inputs.isEmpty) return '未设置';
+    final parts = <String>[];
+    for (final e in inputs.entries) {
+      parts.add('${e.key}(${e.value.length})');
+      if (parts.length >= 4) break;
+    }
+    return parts.join(', ');
+  }
 
   @override
   Widget build(BuildContext context) {
-    if (entries.isEmpty) {
-      return const Center(child: Text('暂无任务'));
-    }
-    return ListView.separated(
-      padding: EdgeInsets.all(16.r),
-      itemCount: entries.length,
-      separatorBuilder: (context, index) => SizedBox(height: 8.h),
-      itemBuilder: (context, index) {
-        final entry = entries[index];
-        final task = entry.task;
-        final tags = <String>[
-          task.isAnsiblePlaybook ? 'Playbook' : '脚本',
-          '文件槽位 ${task.fileSlots.length}',
-          '变量 ${task.variables.length}',
-          if (!entry.item.enabled) '禁用',
-        ];
-        return Card(
-          child: Padding(
-            padding: EdgeInsets.all(12.r),
+    final task = entry.task;
+    final vars =
+        task.variables.where((v) => v.name != 'python').toList(growable: false);
+    final tags = <String>[
+      task.isAnsiblePlaybook ? 'Playbook' : '脚本',
+      '文件槽位 ${task.fileSlots.length}',
+      '变量 ${vars.length}',
+      if (!entry.item.enabled) '禁用',
+    ];
+
+    return Card(
+      child: m.ExpansionTile(
+        key: PageStorageKey('batch-step-${entry.item.id}'),
+        tilePadding: EdgeInsets.symmetric(horizontal: 12.w),
+        title: Text('${index + 1}. ${entry.displayName}'),
+        subtitle: Wrap(
+          spacing: 8.w,
+          runSpacing: 8.h,
+          children: [for (final t in tags) _Tag(text: t)],
+        ),
+        children: [
+          Padding(
+            padding: EdgeInsets.fromLTRB(12.w, 0, 12.w, 12.h),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                if (task.description.trim().isNotEmpty) ...[
+                  Text(task.description).muted(),
+                  SizedBox(height: 8.h),
+                ],
                 Row(
                   children: [
-                    Text('${index + 1}.').muted(),
-                    SizedBox(width: 8.w),
                     Expanded(
                       child: Text(
-                        entry.displayName,
-                        style: const TextStyle(fontWeight: FontWeight.w600),
+                        '参数定义',
+                        style: m.Theme.of(context).textTheme.titleSmall,
                       ),
+                    ),
+                    OutlineButton(
+                      onPressed: onEditParams,
+                      child: const Text('编辑该步骤参数'),
                     ),
                   ],
                 ),
-                if (task.description.trim().isNotEmpty) ...[
-                  SizedBox(height: 6.h),
-                  Text(task.description).muted(),
-                ],
+                SizedBox(height: 6.h),
+                if (vars.isEmpty)
+                  Text('无变量').muted()
+                else
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      for (final v in vars) ...[
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: Text.rich(
+                                TextSpan(
+                                  children: [
+                                    TextSpan(
+                                      text: _varDisplay(v),
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    if (v.required)
+                                      TextSpan(
+                                        text: ' *',
+                                        style: TextStyle(
+                                          color: m.Colors.red,
+                                        ),
+                                      ),
+                                    if (v.defaultValue.trim().isNotEmpty)
+                                      TextSpan(
+                                        text: ' = ${v.defaultValue}',
+                                        style: TextStyle(
+                                          color: Theme.of(
+                                            context,
+                                          ).colorScheme.mutedForeground,
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (v.description.trim().isNotEmpty)
+                          Text(
+                            v.description.trim(),
+                          ).muted(),
+                        SizedBox(height: 6.h),
+                      ],
+                    ],
+                  ),
                 SizedBox(height: 8.h),
-                Wrap(
-                  spacing: 8.w,
-                  runSpacing: 8.h,
-                  children: [for (final t in tags) _Tag(text: t)],
+                Row(
+                  children: [
+                    const Text('批次变量').muted(),
+                    const Spacer(),
+                    Text(_formatInputVars(entry.item.inputs.vars)).muted(),
+                  ],
+                ),
+                SizedBox(height: 12.h),
+                Text(
+                  '文件槽位',
+                  style: m.Theme.of(context).textTheme.titleSmall,
+                ),
+                SizedBox(height: 6.h),
+                if (task.fileSlots.isEmpty)
+                  Text('无文件槽位').muted()
+                else
+                  Wrap(
+                    spacing: 8.w,
+                    runSpacing: 8.h,
+                    children: task.fileSlots.map((s) {
+                      return Container(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: 8.w,
+                          vertical: 4.h,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.muted,
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(
+                            color: Theme.of(context).colorScheme.border,
+                          ),
+                        ),
+                        child: Text(
+                          '${s.name}${s.required ? "*" : ""} (${s.multiple ? "N" : "1"})',
+                          style: TextStyle(fontSize: 12.sp),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                SizedBox(height: 8.h),
+                Row(
+                  children: [
+                    const Text('批次文件').muted(),
+                    const Spacer(),
+                    Text(
+                      _formatInputFiles(entry.item.inputs.fileInputs),
+                    ).muted(),
+                  ],
                 ),
               ],
             ),
           ),
-        );
-      },
+        ],
+      ),
+    );
+  }
+}
+
+class _ManagedServersDialog extends StatelessWidget {
+  final List<Server> servers;
+
+  const _ManagedServersDialog({required this.servers});
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('被控端清单'),
+      content: SizedBox(
+        width: 560.w,
+        height: 360.h,
+        child: servers.isEmpty
+            ? const Center(child: Text('暂无被控端'))
+            : m.ListView.separated(
+                itemCount: servers.length,
+                separatorBuilder: (context, index) => const Divider(height: 1),
+                itemBuilder: (context, i) {
+                  final s = servers[i];
+                  return m.ListTile(
+                    title: Text(s.name),
+                    subtitle: Text('${s.ip}:${s.port}').muted(),
+                    trailing: Text(
+                      s.username.isEmpty ? 'root' : s.username,
+                    ).muted(),
+                  );
+                },
+              ),
+      ),
+      actions: [
+        OutlineButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('关闭'),
+        ),
+      ],
     );
   }
 }
@@ -1172,226 +1433,65 @@ class _Tag extends StatelessWidget {
   }
 }
 
-class _BatchParametersView extends StatelessWidget {
+class _BatchRunsView extends StatelessWidget {
   final Batch batch;
   final List<_BatchTaskEntry> entries;
-  final Server? control;
+  final VoidCallback onBackToConfig;
 
-  const _BatchParametersView({
+  const _BatchRunsView({
     required this.batch,
     required this.entries,
-    required this.control,
+    required this.onBackToConfig,
   });
-
-  String _formatFileInputs(BatchTaskInputs inputs) {
-    if (inputs.fileInputs.isEmpty) return '文件：未设置';
-    final parts = <String>[];
-    for (final e in inputs.fileInputs.entries) {
-      parts.add('${e.key}(${e.value.length})');
-      if (parts.length >= 3) break;
-    }
-    return '文件：${parts.join(', ')}';
-  }
-
-  String _formatVars(BatchTaskInputs inputs) {
-    if (inputs.vars.isEmpty) return '变量：未设置';
-    final parts = <String>[];
-    for (final e in inputs.vars.entries) {
-      if (e.key == 'python') continue;
-      if (e.value.trim().isEmpty) continue;
-      parts.add('${e.key}=${e.value}');
-      if (parts.length >= 3) break;
-    }
-    if (parts.isEmpty) return '变量：未设置';
-    return '变量：${parts.join(', ')}';
-  }
-
-  String _formatRunFiles(TaskRunResult? result) {
-    final inputs = result?.fileInputs;
-    if (inputs == null || inputs.isEmpty) return '文件：未记录';
-    final parts = <String>[];
-    for (final e in inputs.entries) {
-      parts.add('${e.key}(${e.value.length})');
-      if (parts.length >= 3) break;
-    }
-    return '文件：${parts.join(', ')}';
-  }
-
-  String _formatRunVars(TaskRunResult? result) {
-    final vars = result?.vars;
-    if (vars == null || vars.isEmpty) return '变量：未记录';
-    final parts = <String>[];
-    for (final e in vars.entries) {
-      if (e.key == 'python') continue;
-      if (e.value.trim().isEmpty) continue;
-      parts.add('${e.key}=${e.value}');
-      if (parts.length >= 3) break;
-    }
-    if (parts.isEmpty) return '变量：未记录';
-    return '变量：${parts.join(', ')}';
-  }
 
   @override
   Widget build(BuildContext context) {
     final controller = Get.find<BatchesController>();
-    final running = batch.status == BatchStatus.running;
-    final run = controller.selectedRun;
-    final showingRun = run != null;
-    final canEdit = !running && !showingRun;
-
     return Column(
       children: [
-        Container(
-          padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 8.h),
-          decoration: BoxDecoration(
-            border: Border(
-              bottom: BorderSide(color: Theme.of(context).colorScheme.border),
+        Obx(() {
+          final run = controller.selectedRun;
+          if (run == null) return const SizedBox.shrink();
+          return Container(
+            padding: EdgeInsets.symmetric(horizontal: 12.w, vertical: 8.h),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.muted,
+              border: Border(
+                bottom: BorderSide(color: Theme.of(context).colorScheme.border),
+              ),
             ),
-          ),
-          child: Row(
-            children: [
-              Text(showingRun ? '任务参数（运行快照 #${run.seq}）' : '任务参数（批次配置）').p(),
-              const Spacer(),
-              if (showingRun)
+            child: Row(
+              children: [
+                Text('当前查看运行记录 #${run.seq}').p(),
+                const Spacer(),
                 GhostButton(
                   onPressed: () {
                     controller.userPinnedRun.value = false;
                     controller.selectedRunId.value = null;
+                    onBackToConfig();
                   },
                   child: const Text('查看批次配置'),
                 ),
-              if (canEdit)
-                OutlineButton(
-                  onPressed: () async {
-                    final inputs = await showDialog<RunInputs>(
-                      context: context,
-                      builder: (context) => _BatchInputsDialog(
-                        entries: entries,
-                        actionLabel: '保存参数',
-                        enforceRequired: false,
-                      ),
-                    );
-                    if (inputs == null) return;
-                    try {
-                      await controller.updateBatchTaskInputs(batch, inputs);
-                    } on AppException catch (e) {
-                      if (context.mounted) {
-                        await showAppErrorDialog(context, e);
-                      }
-                    }
-                  },
-                  child: const Text('编辑参数'),
-                ),
-              SizedBox(width: 8.w),
-              GhostButton(
-                onPressed: () async {
-                  if (!context.mounted) return;
-                  await showDialog<void>(
-                    context: context,
-                    builder: (context) => _BatchSnapshotsDialog(
-                      batch: batch,
-                      entries: entries,
-                      control: control,
-                    ),
-                  );
-                },
-                child: const Text('参数快照'),
-              ),
-            ],
-          ),
-        ),
+              ],
+            ),
+          );
+        }),
         Expanded(
-          child: entries.isEmpty
-              ? const Center(child: Text('暂无任务'))
-              : ListView.separated(
-                  padding: EdgeInsets.all(12.r),
-                  itemCount: entries.length,
-                  separatorBuilder: (context, index) =>
-                      const Divider(height: 1),
-                  itemBuilder: (context, i) {
-                    final entry = entries[i];
-                    final inputs = entry.item.inputs;
-                    final result = (run != null && i < run.taskResults.length)
-                        ? run.taskResults[i]
-                        : null;
-                    return m.ListTile(
-                      title: Text(entry.displayName),
-                      subtitle: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            showingRun
-                                ? _formatRunFiles(result)
-                                : _formatFileInputs(inputs),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ).muted(),
-                          Text(
-                            showingRun
-                                ? _formatRunVars(result)
-                                : _formatVars(inputs),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ).muted(),
-                        ],
-                      ),
-                      trailing: canEdit
-                          ? GhostButton(
-                              density: ButtonDensity.icon,
-                              onPressed: () async {
-                                final inputs = await showDialog<RunInputs>(
-                                  context: context,
-                                  builder: (context) => _BatchInputsDialog(
-                                    entries: [entry],
-                                    actionLabel: '保存参数',
-                                    enforceRequired: false,
-                                  ),
-                                );
-                                if (inputs == null) return;
-                                try {
-                                  await controller.updateBatchTaskInputs(
-                                    batch,
-                                    inputs,
-                                  );
-                                } on AppException catch (e) {
-                                  if (context.mounted) {
-                                    await showAppErrorDialog(context, e);
-                                  }
-                                }
-                              },
-                              child: const Icon(Icons.edit, size: 16),
-                            )
-                          : null,
-                    );
-                  },
-                ),
-        ),
-      ],
-    );
-  }
-}
-
-class _BatchRunsView extends StatelessWidget {
-  final Batch batch;
-  final List<_BatchTaskEntry> entries;
-
-  const _BatchRunsView({required this.batch, required this.entries});
-
-  @override
-  Widget build(BuildContext context) {
-    final controller = Get.find<BatchesController>();
-    return Row(
-      children: [
-        SizedBox(
-          width: 320.w,
-          child: _RunHistoryView(controller: controller),
-        ),
-        const VerticalDivider(width: 1),
-        Expanded(
-          child: Column(
+          child: Row(
             children: [
-              _HorizontalTaskProgressBar(entries: entries),
-              Expanded(child: _BatchLogArea(batch: batch)),
+              SizedBox(
+                width: 320.w,
+                child: _RunHistoryView(controller: controller),
+              ),
+              const VerticalDivider(width: 1),
+              Expanded(
+                child: Column(
+                  children: [
+                    _HorizontalTaskProgressBar(entries: entries),
+                    Expanded(child: _BatchLogArea(batch: batch)),
+                  ],
+                ),
+              ),
             ],
           ),
         ),
@@ -1404,6 +1504,28 @@ class _BatchSettingsView extends StatelessWidget {
   final Batch batch;
 
   const _BatchSettingsView({required this.batch});
+
+  String _formatOptionalInt(int? value) {
+    if (value == null || value <= 0) return '默认';
+    return value.toString();
+  }
+
+  String _formatOptionalText(String value) {
+    if (value.trim().isEmpty) return '默认';
+    return value.trim();
+  }
+
+  Widget _kvRow(String label, String value) {
+    return Padding(
+      padding: EdgeInsets.only(bottom: 6.h),
+      child: Row(
+        children: [
+          SizedBox(width: 140.w, child: Text(label).muted()),
+          Expanded(child: Text(value)),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1464,6 +1586,33 @@ class _BatchSettingsView extends StatelessWidget {
                       : null,
                   child: const Text('强制解锁'),
                 ),
+              ],
+            ),
+          ),
+        ),
+        SizedBox(height: 16.h),
+        Text('Ansible 默认参数', style: m.Theme.of(context).textTheme.titleMedium),
+        SizedBox(height: 8.h),
+        Card(
+          child: Padding(
+            padding: EdgeInsets.all(12.r),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _kvRow('forks', _formatOptionalInt(batch.ansibleForks)),
+                _kvRow('timeout', _formatOptionalInt(batch.ansibleTimeout)),
+                _kvRow(
+                  'become',
+                  batch.ansibleBecome ? '开启' : '关闭',
+                ),
+                _kvRow('become user', _formatOptionalText(batch.ansibleBecomeUser)),
+                _kvRow(
+                  'become method',
+                  _formatOptionalText(batch.ansibleBecomeMethod),
+                ),
+                _kvRow('check 模式', batch.ansibleCheck ? '开启' : '关闭'),
+                SizedBox(height: 6.h),
+                Text('在“编辑批次”中统一调整').muted(),
               ],
             ),
           ),
@@ -1819,7 +1968,7 @@ class _BatchLogAreaState extends State<_BatchLogArea> {
                     controller.selectedTaskIndex.value ==
                     BatchesController.systemStageIndex;
                 return Text(
-                  isSystem ? '系统准备日志' : '任务日志',
+                  isSystem ? '系统准备日志' : '步骤日志',
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 );
               }),
@@ -2167,6 +2316,12 @@ class _BatchEditDialog extends StatefulWidget {
 class _BatchEditDialogState extends State<_BatchEditDialog> {
   final m.TextEditingController _name = m.TextEditingController();
   final m.TextEditingController _desc = m.TextEditingController();
+  final m.TextEditingController _forks = m.TextEditingController();
+  final m.TextEditingController _timeout = m.TextEditingController();
+  final m.TextEditingController _becomeUser = m.TextEditingController();
+  final m.TextEditingController _becomeMethod = m.TextEditingController();
+  bool _become = false;
+  bool _check = false;
 
   String? _controlId;
   final Set<String> _managed = <String>{};
@@ -2182,6 +2337,12 @@ class _BatchEditDialogState extends State<_BatchEditDialog> {
       _controlId = i.controlServerId;
       _managed.addAll(i.managedServerIds);
       _items.addAll(i.orderedTaskItems());
+      _forks.text = i.ansibleForks?.toString() ?? '';
+      _timeout.text = i.ansibleTimeout?.toString() ?? '';
+      _become = i.ansibleBecome;
+      _check = i.ansibleCheck;
+      _becomeUser.text = i.ansibleBecomeUser;
+      _becomeMethod.text = i.ansibleBecomeMethod;
     } else {
       final firstControl = widget.servers
           .where((s) => s.type == ServerType.control && s.enabled)
@@ -2194,6 +2355,10 @@ class _BatchEditDialogState extends State<_BatchEditDialog> {
   void dispose() {
     _name.dispose();
     _desc.dispose();
+    _forks.dispose();
+    _timeout.dispose();
+    _becomeUser.dispose();
+    _becomeMethod.dispose();
     super.dispose();
   }
 
@@ -2209,6 +2374,12 @@ class _BatchEditDialogState extends State<_BatchEditDialog> {
 
     final canSave =
         _controlId != null && _managed.isNotEmpty && _items.isNotEmpty;
+
+    int? parseIntOrNull(String text) {
+      final trimmed = text.trim();
+      if (trimmed.isEmpty) return null;
+      return int.tryParse(trimmed);
+    }
 
     return AlertDialog(
       title: Text(initial == null ? '新增批次' : '编辑批次'),
@@ -2249,6 +2420,95 @@ class _BatchEditDialogState extends State<_BatchEditDialog> {
               child: Text(kRemotePythonPath),
             ),
             SizedBox(height: 16.h),
+            Card(
+              child: Padding(
+                padding: EdgeInsets.all(12.r),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Ansible 默认参数',
+                      style: m.Theme.of(context).textTheme.titleSmall,
+                    ),
+                    SizedBox(height: 8.h),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: m.TextField(
+                            controller: _forks,
+                            decoration: const m.InputDecoration(
+                              labelText: 'forks（可选）',
+                              hintText: '例如：5',
+                            ),
+                            keyboardType: m.TextInputType.number,
+                          ),
+                        ),
+                        SizedBox(width: 12.w),
+                        Expanded(
+                          child: m.TextField(
+                            controller: _timeout,
+                            decoration: const m.InputDecoration(
+                              labelText: 'timeout 秒（可选）',
+                              hintText: '例如：30',
+                            ),
+                            keyboardType: m.TextInputType.number,
+                          ),
+                        ),
+                      ],
+                    ),
+                    SizedBox(height: 8.h),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: m.CheckboxListTile(
+                            contentPadding: EdgeInsets.zero,
+                            value: _become,
+                            onChanged: (v) =>
+                                setState(() => _become = v ?? _become),
+                            title: const Text('become'),
+                          ),
+                        ),
+                        Expanded(
+                          child: m.CheckboxListTile(
+                            contentPadding: EdgeInsets.zero,
+                            value: _check,
+                            onChanged: (v) =>
+                                setState(() => _check = v ?? _check),
+                            title: const Text('check 模式'),
+                          ),
+                        ),
+                      ],
+                    ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: m.TextField(
+                            controller: _becomeUser,
+                            decoration: const m.InputDecoration(
+                              labelText: 'become user（可选）',
+                              hintText: '例如：root',
+                            ),
+                            enabled: _become,
+                          ),
+                        ),
+                        SizedBox(width: 12.w),
+                        Expanded(
+                          child: m.TextField(
+                            controller: _becomeMethod,
+                            decoration: const m.InputDecoration(
+                              labelText: 'become method（可选）',
+                              hintText: '例如：sudo',
+                            ),
+                            enabled: _become,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            SizedBox(height: 16.h),
             Row(
               children: [
                 const Expanded(child: Text('选择被控端（至少 1 个）')),
@@ -2283,7 +2543,7 @@ class _BatchEditDialogState extends State<_BatchEditDialog> {
             SizedBox(height: 16.h),
             Row(
               children: [
-                const Expanded(child: Text('任务顺序（至少 1 个）')),
+                const Expanded(child: Text('步骤顺序（至少 1 个）')),
                 OutlineButton(
                   onPressed: () async {
                     final existing = _items.map((i) => i.taskId).toSet();
@@ -2310,7 +2570,7 @@ class _BatchEditDialogState extends State<_BatchEditDialog> {
                       }
                     });
                   },
-                  child: const Text('添加任务'),
+                  child: const Text('添加步骤'),
                 ),
               ],
             ),
@@ -2318,7 +2578,7 @@ class _BatchEditDialogState extends State<_BatchEditDialog> {
             SizedBox(
               height: 180.h,
               child: _items.isEmpty
-                  ? const Center(child: Text('暂无任务'))
+                  ? const Center(child: Text('暂无步骤'))
                   : m.ListView.builder(
                       itemCount: _items.length,
                       itemBuilder: (context, i) {
@@ -2330,7 +2590,7 @@ class _BatchEditDialogState extends State<_BatchEditDialog> {
                           title: Text(
                             item.name.isNotEmpty
                                 ? item.name
-                                : (t?.name ?? '未知任务'),
+                                : (t?.name ?? '未知步骤'),
                           ),
                           subtitle: Text('task_id=${item.taskId}').muted(),
                           leading: Text('${i + 1}').mono(),
@@ -2400,6 +2660,12 @@ class _BatchEditDialogState extends State<_BatchEditDialog> {
                       lastRunId: initial?.lastRunId,
                       pythonPath: kRemotePythonPath,
                       runSeq: initial?.runSeq ?? 0,
+                      ansibleForks: parseIntOrNull(_forks.text),
+                      ansibleTimeout: parseIntOrNull(_timeout.text),
+                      ansibleBecome: _become,
+                      ansibleBecomeUser: _becomeUser.text.trim(),
+                      ansibleBecomeMethod: _becomeMethod.text.trim(),
+                      ansibleCheck: _check,
                     ),
                   );
                 }
@@ -2436,7 +2702,7 @@ class _PickTaskDialogState extends State<_PickTaskDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('选择任务（可多选）'),
+      title: const Text('选择步骤（可多选）'),
       content: SizedBox(
         width: 520.w,
         height: 420.h,
@@ -2739,8 +3005,8 @@ class _BatchInputsDialogState extends State<_BatchInputsDialog> {
         const AppException(
           code: AppErrorCode.validation,
           title: '无可用脚本产物',
-          message: '当前任务之前没有带产物的脚本任务。',
-          suggestion: '请先添加并执行产生产物的脚本任务。',
+          message: '当前步骤之前没有带产物的脚本步骤。',
+          suggestion: '请先添加并执行产生产物的脚本步骤。',
         ),
       );
       return null;
@@ -2836,6 +3102,12 @@ class _BatchInputsDialogState extends State<_BatchInputsDialog> {
     });
   }
 
+  String _varLabel(TaskVariable v) {
+    final alias = v.alias.trim();
+    if (alias.isEmpty) return v.name;
+    return '$alias (${v.name})';
+  }
+
   @override
   Widget build(BuildContext context) {
     final entries = widget.entries;
@@ -2856,7 +3128,7 @@ class _BatchInputsDialogState extends State<_BatchInputsDialog> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('任务列表').p(),
+                  const Text('步骤列表').p(),
                   SizedBox(height: 6.h),
                   Expanded(
                     child: m.ListView.separated(
@@ -2916,7 +3188,7 @@ class _BatchInputsDialogState extends State<_BatchInputsDialog> {
             const VerticalDivider(width: 1),
             Expanded(
               child: selected == null
-                  ? const Center(child: Text('暂无任务'))
+                  ? const Center(child: Text('暂无步骤'))
                   : m.ListView(
                       children: [
                         Text(selected.displayName).p(),
@@ -2927,8 +3199,8 @@ class _BatchInputsDialogState extends State<_BatchInputsDialog> {
                               controller: _varCtrls[selected.item.id]?[v.name],
                               decoration: m.InputDecoration(
                                 labelText: v.required
-                                    ? '${v.name}（必填）'
-                                    : v.name,
+                                    ? '${_varLabel(v)}（必填）'
+                                    : _varLabel(v),
                                 helperText: v.description.trim().isEmpty
                                     ? null
                                     : v.description.trim(),
@@ -2945,7 +3217,7 @@ class _BatchInputsDialogState extends State<_BatchInputsDialog> {
                         if (selected.task.fileSlots.isEmpty)
                           Padding(
                             padding: EdgeInsets.only(bottom: 8.h),
-                            child: Text('该任务没有文件槽位。').muted(),
+                            child: Text('该步骤没有文件槽位。').muted(),
                           ),
                         for (final slot in selected.task.fileSlots) ...[
                           _SlotRow(

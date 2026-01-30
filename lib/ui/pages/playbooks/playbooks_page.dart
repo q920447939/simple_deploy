@@ -415,6 +415,7 @@ class _PlaybookSidebar extends StatelessWidget {
         Expanded(
           child: Obx(() {
             final items = controller.playbooks;
+            final selectedId = controller.selectedId.value;
             if (items.isEmpty) {
               return const Center(child: Text('暂无 Playbook'));
             }
@@ -423,7 +424,7 @@ class _PlaybookSidebar extends StatelessWidget {
               separatorBuilder: (context, index) => const Divider(height: 1),
               itemBuilder: (context, i) {
                 final p = items[i];
-                final selected = controller.selectedId.value == p.id;
+                final selected = selectedId == p.id;
                 final checked = controller.isBulkSelected(p.id);
 
                 return m.Material(

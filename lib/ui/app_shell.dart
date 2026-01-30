@@ -110,7 +110,7 @@ class AppShell extends StatelessWidget {
                   tile(0, '项目', Icons.folder),
                   tile(1, '服务器', Icons.dns),
                   tile(2, 'Playbook', Icons.description),
-                  tile(3, '任务', Icons.checklist),
+                  tile(3, '步骤模板', Icons.checklist),
                   tile(4, '批次', Icons.playlist_play),
                 ],
               );

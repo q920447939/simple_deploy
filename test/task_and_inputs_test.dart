@@ -34,6 +34,7 @@ void main() {
       variables: const [
         TaskVariable(
           name: 'version',
+          alias: '版本号',
           description: 'app version',
           defaultValue: '1.0.0',
           required: true,

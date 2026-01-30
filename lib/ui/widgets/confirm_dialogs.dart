@@ -36,7 +36,7 @@ Future<bool> confirmDeleteProject(
     builder: (context) => AlertDialog(
       title: const Text('删除项目？'),
       content: Text(
-        '将删除项目“$projectName”的所有数据：服务器、Playbook、任务、批次、Run、日志（不可恢复）。',
+        '将删除项目“$projectName”的所有数据：服务器、Playbook、步骤模板、批次、Run、日志（不可恢复）。',
       ),
       actions: [
         OutlineButton(

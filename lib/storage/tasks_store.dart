@@ -19,7 +19,7 @@ class TasksStore {
       if (raw is! List) {
         throw const AppException(
           code: AppErrorCode.storageCorruptJson,
-          title: '任务文件损坏',
+          title: '步骤模板文件损坏',
           message: 'tasks.json 不是数组结构。',
           suggestion: '手动修复 JSON 或删除项目目录后重建。',
         );
@@ -34,7 +34,7 @@ class TasksStore {
       logger.error('tasks.list.failed', data: {'error': e.toString()});
       throw AppException(
         code: AppErrorCode.storageIo,
-        title: '读取任务失败',
+        title: '读取步骤模板失败',
         message: '无法读取 tasks.json。',
         suggestion: '检查本机磁盘权限与剩余空间。',
         cause: e,
@@ -64,7 +64,7 @@ class TasksStore {
       );
       throw AppException(
         code: AppErrorCode.storageIo,
-        title: '保存任务失败',
+        title: '保存步骤模板失败',
         message: '无法写入 tasks.json。',
         suggestion: '检查本机磁盘权限与剩余空间。',
         cause: e,
@@ -87,7 +87,7 @@ class TasksStore {
       );
       throw AppException(
         code: AppErrorCode.storageIo,
-        title: '删除任务失败',
+        title: '删除步骤模板失败',
         message: '无法更新 tasks.json。',
         suggestion: '检查本机磁盘权限与剩余空间。',
         cause: e,

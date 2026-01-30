@@ -29,7 +29,7 @@ class ProjectGuard extends StatelessWidget {
                 Text('未选择项目', style: m.Theme.of(context).textTheme.titleLarge),
                 SizedBox(height: 12.h),
                 Text(
-                  '请先创建/选择一个项目，再管理服务器/Playbook/任务/批次。',
+                  '请先创建/选择一个项目，再管理服务器/Playbook/步骤模板/批次。',
                   style: m.Theme.of(context).textTheme.bodyMedium?.copyWith(
                     color: m.Theme.of(
                       context,

@@ -76,7 +76,7 @@ class TasksController extends GetxController {
       throw const AppException(
         code: AppErrorCode.validation,
         title: '名称不能为空',
-        message: '请填写任务名称。',
+        message: '请填写步骤名称。',
         suggestion: '例如：部署 / 升级 / 回滚。',
       );
     }
@@ -85,9 +85,9 @@ class TasksController extends GetxController {
         task.type != TaskType.localScript) {
       throw const AppException(
         code: AppErrorCode.validation,
-        title: '任务类型不合法',
-        message: '未知的任务类型(type)。',
-        suggestion: '请重新创建任务。',
+        title: '步骤类型不合法',
+        message: '未知的步骤类型(type)。',
+        suggestion: '请重新创建步骤模板。',
       );
     }
 
@@ -116,7 +116,7 @@ class TasksController extends GetxController {
           throw const AppException(
             code: AppErrorCode.validation,
             title: '槽位名重复',
-            message: '同一个任务内不允许出现重复的槽位名。',
+            message: '同一个步骤内不允许出现重复的槽位名。',
             suggestion: '修改槽位名后重试。',
           );
         }
@@ -147,13 +147,14 @@ class TasksController extends GetxController {
         throw const AppException(
           code: AppErrorCode.validation,
           title: '变量名重复',
-          message: '同一个任务内不允许出现重复的变量名。',
+          message: '同一个步骤内不允许出现重复的变量名。',
           suggestion: '修改变量名后重试。',
         );
       }
       normalizedVars.add(
         TaskVariable(
           name: name,
+          alias: v.alias.trim(),
           description: v.description.trim(),
           defaultValue: v.defaultValue,
           required: v.required,
@@ -179,7 +180,7 @@ class TasksController extends GetxController {
           throw const AppException(
             code: AppErrorCode.validation,
             title: '产物名重复',
-            message: '同一个脚本任务内不允许出现重复的产物名。',
+            message: '同一个脚本步骤内不允许出现重复的产物名。',
             suggestion: '修改产物名后重试。',
           );
         }
@@ -204,8 +205,8 @@ class TasksController extends GetxController {
         throw const AppException(
           code: AppErrorCode.validation,
           title: '未绑定 Playbook',
-          message: 'Ansible Playbook 任务必须选择一个 Playbook。',
-          suggestion: '在任务编辑中绑定 Playbook 后重试。',
+          message: 'Ansible Playbook 步骤必须选择一个 Playbook。',
+          suggestion: '在步骤编辑中绑定 Playbook 后重试。',
         );
       }
       final metas = await AppServices.I.playbooksStore(pid).listMeta();
@@ -225,7 +226,7 @@ class TasksController extends GetxController {
         throw const AppException(
           code: AppErrorCode.validation,
           title: '脚本不能为空',
-          message: '脚本任务必须填写脚本内容。',
+          message: '脚本步骤必须填写脚本内容。',
           suggestion: '填写 bash/bat 脚本后重试。',
         );
       }
@@ -233,7 +234,7 @@ class TasksController extends GetxController {
         throw const AppException(
           code: AppErrorCode.validation,
           title: '脚本不能为空',
-          message: '脚本任务必须填写脚本内容。',
+          message: '脚本步骤必须填写脚本内容。',
           suggestion: '填写 bash/bat 脚本后重试。',
         );
       }
@@ -308,9 +309,9 @@ class TasksController extends GetxController {
           .join('\n');
       throw AppException(
         code: AppErrorCode.validation,
-        title: '任务被批次引用',
-        message: '该任务正在被以下批次引用，无法删除：\n$lines',
-        suggestion: '先在批次中移除该任务，或删除相关批次后再删除任务。',
+        title: '步骤被批次引用',
+        message: '该步骤正在被以下批次引用，无法删除：\n$lines',
+        suggestion: '先在批次中移除该步骤，或删除相关批次后再删除步骤。',
       );
     }
 

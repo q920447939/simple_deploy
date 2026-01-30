@@ -237,7 +237,7 @@ class ProjectsPage extends StatelessWidget {
                           Text('更新时间: ${formatDateTime(p.updatedAt)}').mono(),
                           SizedBox(height: 16.h),
                           Text('说明').p(),
-                          Text('v1：项目用于隔离服务器/Playbook/任务/批次等配置。').muted(),
+                          Text('v1：项目用于隔离服务器/Playbook/步骤模板/批次等配置。').muted(),
                         ],
                       );
                     }),

@@ -768,7 +768,7 @@ class BatchesController extends GetxController {
       throw const AppException(
         code: AppErrorCode.validation,
         title: '批次不可编辑',
-        message: '批次运行中，暂不可更新任务参数。',
+        message: '批次运行中，暂不可更新步骤参数。',
         suggestion: '请等待运行结束后再编辑。',
       );
     }

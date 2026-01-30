@@ -7,12 +7,14 @@ class TaskType {
 
 class TaskVariable {
   final String name;
+  final String alias;
   final String description;
   final String defaultValue;
   final bool required;
 
   const TaskVariable({
     required this.name,
+    required this.alias,
     required this.description,
     required this.defaultValue,
     required this.required,
@@ -20,12 +22,14 @@ class TaskVariable {
 
   TaskVariable copyWith({
     String? name,
+    String? alias,
     String? description,
     String? defaultValue,
     bool? required,
   }) {
     return TaskVariable(
       name: name ?? this.name,
+      alias: alias ?? this.alias,
       description: description ?? this.description,
       defaultValue: defaultValue ?? this.defaultValue,
       required: required ?? this.required,
@@ -35,6 +39,7 @@ class TaskVariable {
   static TaskVariable fromJson(Map<String, Object?> json) {
     return TaskVariable(
       name: (json['name'] as String?) ?? '',
+      alias: (json['alias'] as String?) ?? '',
       description: (json['description'] as String?) ?? '',
       defaultValue: (json['default'] as String?) ?? '',
       required: (json['required'] as bool?) ?? false,
@@ -44,6 +49,7 @@ class TaskVariable {
   Map<String, Object?> toJson() {
     return {
       'name': name,
+      'alias': alias,
       'description': description,
       'default': defaultValue,
       'required': required,

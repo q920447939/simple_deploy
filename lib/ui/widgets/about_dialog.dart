@@ -96,7 +96,7 @@ class _AboutAndHelpDialogState extends State<_AboutAndHelpDialog> {
               children: const [
                 StepItem(
                   title: Text('创建项目'),
-                  content: [Text('项目用于隔离服务器/Playbook/任务/批次。')],
+                  content: [Text('项目用于隔离服务器/Playbook/步骤模板/批次。')],
                 ),
                 StepItem(
                   title: Text('添加服务器'),
@@ -107,16 +107,16 @@ class _AboutAndHelpDialogState extends State<_AboutAndHelpDialog> {
                   content: [Text('在 Playbook 页面新建并保存（会做 YAML 语法校验）。')],
                 ),
                 StepItem(
-                  title: Text('创建任务'),
-                  content: [Text('任务绑定 Playbook，可声明文件槽位（可选/必选/多文件）。')],
+                  title: Text('创建步骤模板'),
+                  content: [Text('步骤模板绑定 Playbook，可声明文件槽位（可选/必选/多文件）。')],
                 ),
                 StepItem(
                   title: Text('创建批次'),
-                  content: [Text('选择 1 控制端、>=1 被控端、>=1 任务并排序。')],
+                  content: [Text('选择 1 控制端、>=1 被控端、>=1 步骤并排序。')],
                 ),
                 StepItem(
                   title: Text('执行'),
-                  content: [Text('执行前按任务槽位选择文件；失败会停止后续任务。')],
+                  content: [Text('执行前按步骤槽位选择文件；失败会停止后续步骤。')],
                 ),
               ],
             ),
@@ -128,7 +128,7 @@ class _AboutAndHelpDialogState extends State<_AboutAndHelpDialog> {
                 '- SSH 连接失败：检查 IP/端口/密码/防火墙\n'
                 '- 控制端自检失败：缺少 ansible-playbook/sshpass/unzip 或 /tmp 不可写\n'
                 '- 解包失败：控制端 unzip 缺失或权限不足\n'
-                '- ansible-playbook exit!=0：查看批次详情的任务日志定位原因',
+                '- ansible-playbook exit!=0：查看批次详情的步骤日志定位原因',
               ),
             ),
           ],

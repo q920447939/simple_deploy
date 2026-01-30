@@ -119,9 +119,9 @@ class PlaybooksController extends GetxController {
 
     throw AppException(
       code: AppErrorCode.validation,
-      title: 'Playbook 被任务引用',
-      message: '以下 Playbook 正在被任务引用，无法删除：\n$buf',
-      suggestion: '先修改/删除相关任务（改绑到其他 Playbook）后再删除。',
+      title: 'Playbook 被步骤引用',
+      message: '以下 Playbook 正在被步骤引用，无法删除：\n$buf',
+      suggestion: '先修改/删除相关步骤（改绑到其他 Playbook）后再删除。',
     );
   }
 

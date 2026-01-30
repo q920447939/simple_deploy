@@ -146,6 +146,12 @@ class Batch {
   final String? lastRunId;
   final String pythonPath;
   final int runSeq;
+  final int? ansibleForks;
+  final int? ansibleTimeout;
+  final bool ansibleBecome;
+  final String ansibleBecomeUser;
+  final String ansibleBecomeMethod;
+  final bool ansibleCheck;
 
   const Batch({
     required this.id,
@@ -161,6 +167,12 @@ class Batch {
     required this.lastRunId,
     required this.pythonPath,
     required this.runSeq,
+    required this.ansibleForks,
+    required this.ansibleTimeout,
+    required this.ansibleBecome,
+    required this.ansibleBecomeUser,
+    required this.ansibleBecomeMethod,
+    required this.ansibleCheck,
   });
 
   Batch copyWith({
@@ -175,6 +187,12 @@ class Batch {
     String? lastRunId,
     String? pythonPath,
     int? runSeq,
+    int? ansibleForks,
+    int? ansibleTimeout,
+    bool? ansibleBecome,
+    String? ansibleBecomeUser,
+    String? ansibleBecomeMethod,
+    bool? ansibleCheck,
   }) {
     return Batch(
       id: id,
@@ -190,6 +208,12 @@ class Batch {
       lastRunId: lastRunId ?? this.lastRunId,
       pythonPath: pythonPath == null ? this.pythonPath : kRemotePythonPath,
       runSeq: runSeq ?? this.runSeq,
+      ansibleForks: ansibleForks ?? this.ansibleForks,
+      ansibleTimeout: ansibleTimeout ?? this.ansibleTimeout,
+      ansibleBecome: ansibleBecome ?? this.ansibleBecome,
+      ansibleBecomeUser: ansibleBecomeUser ?? this.ansibleBecomeUser,
+      ansibleBecomeMethod: ansibleBecomeMethod ?? this.ansibleBecomeMethod,
+      ansibleCheck: ansibleCheck ?? this.ansibleCheck,
     );
   }
 
@@ -236,6 +260,12 @@ class Batch {
       lastRunId: json['last_run_id'] as String?,
       pythonPath: kRemotePythonPath,
       runSeq: (json['run_seq'] as num?)?.toInt() ?? 0,
+      ansibleForks: (json['ansible_forks'] as num?)?.toInt(),
+      ansibleTimeout: (json['ansible_timeout'] as num?)?.toInt(),
+      ansibleBecome: (json['ansible_become'] as bool?) ?? false,
+      ansibleBecomeUser: (json['ansible_become_user'] as String?) ?? '',
+      ansibleBecomeMethod: (json['ansible_become_method'] as String?) ?? '',
+      ansibleCheck: (json['ansible_check'] as bool?) ?? false,
     );
   }
 
@@ -271,6 +301,12 @@ class Batch {
       'last_run_id': lastRunId,
       'python_path': pythonPath,
       'run_seq': runSeq,
+      'ansible_forks': ansibleForks,
+      'ansible_timeout': ansibleTimeout,
+      'ansible_become': ansibleBecome,
+      'ansible_become_user': ansibleBecomeUser,
+      'ansible_become_method': ansibleBecomeMethod,
+      'ansible_check': ansibleCheck,
     };
   }
 }

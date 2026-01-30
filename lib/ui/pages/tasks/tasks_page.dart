@@ -41,7 +41,7 @@ class TasksPage extends StatelessWidget {
               child: Obx(() {
                 final t = controller.selected;
                 if (t == null) {
-                  return const Center(child: Text('请选择一个任务查看详情'));
+                  return const Center(child: Text('请选择一个步骤查看详情'));
                 }
                 return _TaskDetail(task: t);
               }),
@@ -61,7 +61,7 @@ class _TemplatePickDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('选择任务模板'),
+      title: const Text('选择步骤模板'),
       content: SizedBox(
         width: 560.w,
         height: 420.h,
@@ -110,7 +110,7 @@ class _TaskSidebar extends StatelessWidget {
             code: AppErrorCode.validation,
             title: '剪贴板为空',
             message: '未读取到剪贴板文本。',
-            suggestion: '先在其他项目中导出任务到剪贴板，再回来导入。',
+            suggestion: '先在其他项目中导出步骤模板到剪贴板，再回来导入。',
           );
         }
         final raw = jsonDecode(text);
@@ -119,7 +119,7 @@ class _TaskSidebar extends StatelessWidget {
             code: AppErrorCode.validation,
             title: '导入失败',
             message: '剪贴板内容不是合法的 JSON 对象。',
-            suggestion: '请确认复制的是任务导出的 JSON。',
+            suggestion: '请确认复制的是步骤模板导出的 JSON。',
           );
         }
         final format = raw['format'];
@@ -128,7 +128,7 @@ class _TaskSidebar extends StatelessWidget {
             code: AppErrorCode.validation,
             title: '导入失败',
             message: '不支持的导入格式：$format',
-            suggestion: '请使用同版本导出的任务 JSON。',
+            suggestion: '请使用同版本导出的步骤模板 JSON。',
           );
         }
         final taskRaw = raw['task'];
@@ -137,7 +137,7 @@ class _TaskSidebar extends StatelessWidget {
             code: AppErrorCode.validation,
             title: '导入失败',
             message: '缺少 task 字段。',
-            suggestion: '请确认复制的是任务导出的 JSON。',
+            suggestion: '请确认复制的是步骤模板导出的 JSON。',
           );
         }
 
@@ -150,7 +150,7 @@ class _TaskSidebar extends StatelessWidget {
             throw const AppException(
               code: AppErrorCode.validation,
               title: '导入失败',
-              message: 'Playbook 任务必须包含 playbook 字段。',
+              message: 'Playbook 步骤必须包含 playbook 字段。',
               suggestion: '请在导出时选择“包含 Playbook”。',
             );
           }
@@ -241,7 +241,7 @@ class _TaskSidebar extends StatelessWidget {
           throw const AppException(
             code: AppErrorCode.validation,
             title: '无可用模板',
-            message: '未找到可用的任务模板。',
+            message: '未找到可用的步骤模板。',
             suggestion: '请检查 templates.json 是否存在或更新安装包。',
           );
         }
@@ -305,7 +305,7 @@ class _TaskSidebar extends StatelessWidget {
             builder: (context, overlay) => Card(
               child: Padding(
                 padding: EdgeInsets.all(12.r),
-                child: const Text('模板任务已创建'),
+                child: const Text('模板步骤已创建'),
               ),
             ),
           );
@@ -320,7 +320,7 @@ class _TaskSidebar extends StatelessWidget {
             context,
             AppException(
               code: AppErrorCode.unknown,
-              title: '创建模板任务失败',
+              title: '创建模板步骤失败',
               message: e.toString(),
               suggestion: '请检查模板资源后重试。',
               cause: e,
@@ -345,7 +345,7 @@ class _TaskSidebar extends StatelessWidget {
             children: [
               Expanded(
                 child: Text(
-                  '任务',
+                  '步骤模板',
                   style: m.Theme.of(context).textTheme.titleMedium,
                 ),
               ),
@@ -390,7 +390,7 @@ class _TaskSidebar extends StatelessWidget {
           child: Obx(() {
             final items = controller.tasks;
             if (items.isEmpty) {
-              return const Center(child: Text('暂无任务'));
+              return const Center(child: Text('暂无步骤'));
             }
             return m.ListView.separated(
               itemCount: items.length,
@@ -561,8 +561,8 @@ class _TaskDetail extends StatelessWidget {
             throw const AppException(
               code: AppErrorCode.validation,
               title: '导出失败',
-              message: '该任务绑定的 Playbook 未找到。',
-              suggestion: '请先修复任务的 Playbook 绑定后再导出。',
+              message: '该步骤绑定的 Playbook 未找到。',
+              suggestion: '请先修复步骤的 Playbook 绑定后再导出。',
             );
           }
           final text = await AppServices.I
@@ -656,7 +656,7 @@ class _TaskDetail extends StatelessWidget {
                   final ok = await showDialog<bool>(
                     context: context,
                     builder: (context) => AlertDialog(
-                      title: const Text('删除任务？'),
+                      title: const Text('删除步骤模板？'),
                       content: Text('将删除：${task.name}'),
                       actions: [
                         OutlineButton(
@@ -696,7 +696,7 @@ class _TaskDetail extends StatelessWidget {
                 infoText('ID', task.id),
                 infoText(
                   '类型',
-                  task.isLocalScript ? '脚本任务 (Local)' : 'Playbook 任务 (Control)',
+                  task.isLocalScript ? '脚本步骤 (Local)' : 'Playbook 步骤 (Control)',
                 ),
                 if (task.isAnsiblePlaybook)
                   infoText('Playbook', playbook?.name ?? '（未找到，请修复）'),
@@ -789,13 +789,16 @@ class _TaskDetail extends StatelessWidget {
                       : Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: task.variables.map((v) {
+                            final alias = v.alias.trim();
+                            final displayName =
+                                alias.isEmpty ? v.name : '$alias (${v.name})';
                             return Padding(
                               padding: EdgeInsets.only(bottom: 4.h),
                               child: Text.rich(
                                 TextSpan(
                                   children: [
                                     TextSpan(
-                                      text: v.name,
+                                      text: displayName,
                                       style: valueStyle.copyWith(
                                         fontWeight: FontWeight.w600,
                                       ),
@@ -919,7 +922,7 @@ class _TaskEditDialogState extends State<_TaskEditDialog> {
         const AppException(
           code: AppErrorCode.validation,
           title: '槽位名重复',
-          message: '同一个任务内不允许出现重复的槽位名。',
+          message: '同一个步骤内不允许出现重复的槽位名。',
           suggestion: '修改槽位名（建议：artifact / config / package）。',
         ),
       );
@@ -968,7 +971,7 @@ class _TaskEditDialogState extends State<_TaskEditDialog> {
         const AppException(
           code: AppErrorCode.validation,
           title: '变量名重复',
-          message: '同一个任务内不允许出现重复的变量名。',
+          message: '同一个步骤内不允许出现重复的变量名。',
           suggestion: '修改变量名后重试。',
         ),
       );
@@ -1020,7 +1023,7 @@ class _TaskEditDialogState extends State<_TaskEditDialog> {
         const AppException(
           code: AppErrorCode.validation,
           title: '产物名重复',
-          message: '同一个任务内不允许出现重复的产物名。',
+          message: '同一个步骤内不允许出现重复的产物名。',
           suggestion: '修改产物名后重试。',
         ),
       );
@@ -1041,7 +1044,7 @@ class _TaskEditDialogState extends State<_TaskEditDialog> {
       throw const AppException(
         code: AppErrorCode.validation,
         title: '名称不能为空',
-        message: '请填写任务名称。',
+        message: '请填写步骤名称。',
         suggestion: '例如：部署 / 升级 / 回滚。',
       );
     }
@@ -1050,8 +1053,8 @@ class _TaskEditDialogState extends State<_TaskEditDialog> {
         throw const AppException(
           code: AppErrorCode.validation,
           title: '未绑定 Playbook',
-          message: 'Ansible Playbook 任务必须选择一个 Playbook。',
-          suggestion: '在任务编辑中绑定 Playbook 后重试。',
+          message: 'Ansible Playbook 步骤必须选择一个 Playbook。',
+          suggestion: '在步骤编辑中绑定 Playbook 后重试。',
         );
       }
       if (widget.playbooks.every((p) => p.id != playbookId)) {
@@ -1077,7 +1080,7 @@ class _TaskEditDialogState extends State<_TaskEditDialog> {
         throw const AppException(
           code: AppErrorCode.validation,
           title: '脚本不能为空',
-          message: '脚本任务必须填写脚本内容。',
+          message: '脚本步骤必须填写脚本内容。',
           suggestion: '填写 bash/bat 脚本后重试。',
         );
       }
@@ -1088,7 +1091,7 @@ class _TaskEditDialogState extends State<_TaskEditDialog> {
   Widget build(BuildContext context) {
     final initial = widget.initial;
     return AlertDialog(
-      title: Text(initial == null ? '新增任务' : '编辑任务'),
+      title: Text(initial == null ? '新增步骤模板' : '编辑步骤模板'),
       content: SizedBox(
         width: 680.w,
         child: m.ConstrainedBox(
@@ -1116,11 +1119,11 @@ class _TaskEditDialogState extends State<_TaskEditDialog> {
                   items: const [
                     m.DropdownMenuItem(
                       value: TaskType.ansiblePlaybook,
-                      child: Text('Ansible Playbook（控制端执行）'),
+                      child: Text('Playbook 步骤（控制端执行）'),
                     ),
                     m.DropdownMenuItem(
                       value: TaskType.localScript,
-                      child: Text('脚本任务（本地执行）'),
+                      child: Text('脚本步骤（本地执行）'),
                     ),
                   ],
                   onChanged: (v) {
@@ -1203,22 +1206,32 @@ class _TaskEditDialogState extends State<_TaskEditDialog> {
                 SizedBox(
                   height: 140.h,
                   child: _vars.isEmpty
-                      ? const Center(child: Text('无'))
-                      : m.ListView.builder(
-                          itemCount: _vars.length,
-                          itemBuilder: (context, i) {
-                            final v = _vars[i];
-                            final req = v.required ? '必填' : '可选';
-                            final def = v.defaultValue.isEmpty
-                                ? '默认: (空)'
-                                : '默认: ${v.defaultValue}';
-                            return m.ListTile(
-                              title: Text(v.name).mono(),
-                              subtitle: Text('$req · $def').muted(),
-                              trailing: GhostButton(
-                                density: ButtonDensity.icon,
-                                onPressed: () =>
-                                    setState(() => _vars.removeAt(i)),
+                        ? const Center(child: Text('无'))
+                        : m.ListView.builder(
+                            itemCount: _vars.length,
+                            itemBuilder: (context, i) {
+                              final v = _vars[i];
+                              final alias = v.alias.trim();
+                              final displayName =
+                                  alias.isEmpty ? v.name : '$alias (${v.name})';
+                              final req = v.required ? '必填' : '可选';
+                              final def = v.defaultValue.isEmpty
+                                  ? '默认: (空)'
+                                  : '默认: ${v.defaultValue}';
+                              return m.ListTile(
+                                title: Text(displayName).mono(),
+                                subtitle: Text(
+                                  [
+                                    req,
+                                    def,
+                                    if (v.description.trim().isNotEmpty)
+                                      '说明: ${v.description.trim()}',
+                                  ].join(' · '),
+                                ).muted(),
+                                trailing: GhostButton(
+                                  density: ButtonDensity.icon,
+                                  onPressed: () =>
+                                      setState(() => _vars.removeAt(i)),
                                 child: const Icon(Icons.close),
                               ),
                             );
@@ -1358,6 +1371,7 @@ class _TaskVarDialog extends StatefulWidget {
 
 class _TaskVarDialogState extends State<_TaskVarDialog> {
   final m.TextEditingController _name = m.TextEditingController();
+  final m.TextEditingController _alias = m.TextEditingController();
   final m.TextEditingController _desc = m.TextEditingController();
   final m.TextEditingController _def = m.TextEditingController();
   bool _required = false;
@@ -1365,6 +1379,7 @@ class _TaskVarDialogState extends State<_TaskVarDialog> {
   @override
   void dispose() {
     _name.dispose();
+    _alias.dispose();
     _desc.dispose();
     _def.dispose();
     super.dispose();
@@ -1393,13 +1408,21 @@ class _TaskVarDialogState extends State<_TaskVarDialog> {
                 ),
                 SizedBox(height: 8.h),
                 m.TextField(
+                  controller: _alias,
+                  decoration: const m.InputDecoration(
+                    labelText: '显示名/别名（可选）',
+                    hintText: '例如：版本号 / 包名 / 运行环境',
+                  ),
+                ),
+                SizedBox(height: 8.h),
+                m.TextField(
                   controller: _def,
                   decoration: const m.InputDecoration(labelText: '默认值（可选）'),
                 ),
                 SizedBox(height: 8.h),
                 m.TextField(
                   controller: _desc,
-                  decoration: const m.InputDecoration(labelText: '描述（可选）'),
+                  decoration: const m.InputDecoration(labelText: '描述/说明（可选）'),
                 ),
                 SizedBox(height: 8.h),
                 m.CheckboxListTile(
@@ -1422,6 +1445,7 @@ class _TaskVarDialogState extends State<_TaskVarDialog> {
             Navigator.of(context).pop(
               TaskVariable(
                 name: _name.text.trim(),
+                alias: _alias.text.trim(),
                 description: _desc.text.trim(),
                 defaultValue: _def.text,
                 required: _required,
